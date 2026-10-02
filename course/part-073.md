@@ -420,7 +420,91 @@ def user_dashboard(request):
 
 ---
 
-## 8. สรุป Part 073
+## 8. Cache กับ DRF
+
+```python
+# views.py - Cache API responses
+from django.views.decorators.cache import cache_page
+from django.utils.decorators import method_decorator
+from rest_framework import viewsets
+
+class ArticleViewSet(viewsets.ModelViewSet):
+    
+    @method_decorator(cache_page(60 * 5))  # cache 5 นาที
+    def list(self, request, *args, **kwargs):
+        """List articles - cached"""
+        return super().list(request, *args, **kwargs)
+    
+    @method_decorator(cache_page(60 * 15))  # cache 15 นาที
+    def retrieve(self, request, *args, **kwargs):
+        """Get article detail - cached"""
+        return super().retrieve(request, *args, **kwargs)
+```
+
+### Vary by User
+
+```python
+from django.views.decorators.vary import vary_on_headers
+
+@method_decorator(cache_page(60 * 5))
+@method_decorator(vary_on_headers('Authorization'))  # cache ต่างกันต่อ token
+def list(self, request, *args, **kwargs):
+    return super().list(request, *args, **kwargs)
+```
+
+---
+
+## 9. Cache Versioning
+
+```python
+from django.core.cache import cache
+
+# Versioning - ล้าง cache ทั้งหมดในครั้งเดียวโดยเปลี่ยน version
+CACHE_VERSION = 1
+
+def get_cache_key(key, version=None):
+    version = version or CACHE_VERSION
+    return f'v{version}:{key}'
+
+# เมื่อ deploy เปลี่ยน version → cache ทั้งหมด invalidate
+
+# ตัวอย่าง
+cache.set(get_cache_key('article:1'), article_data, 300)
+data = cache.get(get_cache_key('article:1'))
+
+# หรือใช้ Django's built-in versioning
+cache.set('article:1', data, version=2)
+data = cache.get('article:1', version=2)
+cache.delete('article:1', version=2)
+```
+
+### Cache Statistics
+
+```python
+# ดู cache statistics (django-redis)
+from django_redis import get_redis_connection
+
+def get_cache_stats():
+    conn = get_redis_connection('default')
+    info = conn.info()
+    
+    return {
+        'used_memory': info['used_memory_human'],
+        'hit_rate': info.get('keyspace_hits', 0) / max(
+            info.get('keyspace_hits', 0) + info.get('keyspace_misses', 0), 1
+        ) * 100,
+        'connected_clients': info['connected_clients'],
+        'total_keys': sum(
+            v.get('keys', 0) 
+            for k, v in info.items() 
+            if k.startswith('db')
+        ),
+    }
+```
+
+---
+
+## 10. สรุป Part 073
 
 ✅ **Cache Backends**: LocMem, File, Memcached, Redis - แต่ละอันเหมาะกับ use case ต่างกัน
 ✅ **Redis** แนะนำสำหรับ production - เร็ว, รองรับ data structures
@@ -430,6 +514,7 @@ def user_dashboard(request):
 ✅ **Cache invalidation** ต้องล้าง cache เมื่อข้อมูลเปลี่ยน (signals)
 ✅ **Cache-aside pattern** ดึง cache ก่อน miss แล้วค่อย query DB
 ✅ **Cache headers** ควบคุม browser/proxy caching
+✅ **Cache versioning** ล้าง cache ทั้งหมดง่ายๆ ด้วยการเปลี่ยน version
 
 ## ➡️ ถัดไป: Part 074 - Django Testing
 

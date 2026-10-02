@@ -6,873 +6,1125 @@
 ## 🎯 เป้าหมายของ Part นี้
 
 หลังจากเรียนจบ Part นี้ คุณจะสามารถ:
-- ใช้ try/except/else/finally ได้
+- ใช้ try/except/else/finally ได้อย่างถูกต้อง
 - สร้าง Custom Exceptions ได้
 - เข้าใจ Exception Hierarchy ได้
-- ใช้ raise และ re-raise exceptions ได้
-- Log errors ได้อย่างถูกต้อง
-- รู้จัก Best Practices ของ Exception Handling
+- ใช้ raise และ re-raise ได้
+- เขียน Context Managers ได้
+- บันทึก Errors ด้วย logging ได้
+- รู้ Best Practices ของ Exception Handling
 
 ---
 
-## 1. ทำไมต้องจัดการ Exceptions?
+## 1. ทำไมต้องมี Exception Handling?
 
 ```python
-# ===== โปรแกรมที่ไม่จัดการ Exception =====
-# ถ้าเกิด error โปรแกรมจะหยุดทำงานทันที
+# ถ้าไม่มี exception handling - โปรแกรม crash
+# numbers = [1, 2, 3]
+# print(numbers[10])     # IndexError: list index out of range
+# print(1 / 0)           # ZeroDivisionError: division by zero
+# print(int("abc"))      # ValueError: invalid literal
 
-def divide_without_handling(a, b):
-    return a / b
-
-# เหล่านี้จะ crash โปรแกรม:
-# result = divide_without_handling(10, 0)  # ZeroDivisionError
-# result = divide_without_handling("10", 2)  # TypeError
-
-# ===== โปรแกรมที่จัดการ Exception =====
-def divide_safely(a, b):
+# ด้วย exception handling - จัดการ error ได้
+def safe_divide(a, b):
     try:
-        return a / b
+        result = a / b
+        return result
     except ZeroDivisionError:
-        print("⚠️  หารด้วยศูนย์ไม่ได้!")
-        return None
-    except TypeError:
-        print("⚠️  ต้องเป็นตัวเลขเท่านั้น!")
         return None
 
-result1 = divide_safely(10, 2)    # 5.0
-result2 = divide_safely(10, 0)    # None + warning
-result3 = divide_safely("10", 2)  # None + warning
+print(safe_divide(10, 2))   # 5.0
+print(safe_divide(10, 0))   # None
 
-print(f"ผลลัพธ์: {result1}, {result2}, {result3}")
-```
+# Exception vs Error
+# Exception - เหตุการณ์ที่ทำให้ program หยุดทำงานปกติ
+# Error - subtype ของ exception (ปัญหาที่ร้ายแรงกว่า)
 
-## 2. try / except พื้นฐาน
-
-```python
-# ===== รูปแบบพื้นฐาน =====
+# Exception ที่พบบ่อย
 try:
-    # โค้ดที่อาจเกิด error
-    result = int("not a number")
+    x = int("abc")           # ValueError
 except ValueError:
-    # จัดการถ้าเกิด ValueError
-    print("ข้อมูลไม่ถูกต้อง")
+    print("ValueError: ข้อมูลผิดรูปแบบ")
 
-# ===== ดึงข้อมูล error =====
 try:
-    number = int("abc")
-except ValueError as e:
-    print(f"Error: {e}")              # invalid literal for int()...
-    print(f"ชนิด: {type(e).__name__}")  # ValueError
+    lst = [1, 2, 3]
+    print(lst[10])           # IndexError
+except IndexError:
+    print("IndexError: index เกินขอบเขต")
 
-# ===== จัดการหลาย exceptions =====
-def process_data(data):
-    try:
-        # อาจเกิดหลาย errors
-        value = int(data)
-        result = 100 / value
-        items = [1, 2, 3]
-        return items[result]
-    except ValueError:
-        print("ข้อมูลต้องเป็นตัวเลข")
-    except ZeroDivisionError:
-        print("ห้ามใช้ค่า 0")
-    except IndexError:
-        print("ดัชนีเกินขอบเขต")
-
-process_data("abc")   # ValueError
-process_data(0)       # ZeroDivisionError
-process_data(200)     # IndexError
-
-# ===== จับ exceptions หลายตัวพร้อมกัน =====
-def parse_config(data):
-    try:
-        value = int(data)
-        return value
-    except (ValueError, TypeError) as e:
-        print(f"Config error: {e}")
-        return None
-
-# ===== จับ Exception ทั่วไป (ระวัง!) =====
 try:
-    x = 1 / 0
-except Exception as e:
-    # ⚠️ จับทุก exception - ใช้เฉพาะเมื่อจำเป็น
-    print(f"มีบางอย่างผิดพลาด: {type(e).__name__}: {e}")
+    d = {"a": 1}
+    print(d["b"])            # KeyError
+except KeyError:
+    print("KeyError: ไม่พบ key")
+
+try:
+    result = "hello" + 42   # TypeError
+except TypeError:
+    print("TypeError: type ไม่ตรงกัน")
+
+try:
+    import non_existent_module  # ModuleNotFoundError
+except ModuleNotFoundError:
+    print("ModuleNotFoundError: ไม่พบ module")
 ```
 
-## 3. try / except / else / finally
+---
+
+## 2. try/except Structure
 
 ```python
-# ===== else: ทำงานถ้าไม่เกิด exception =====
-def read_number(text: str) -> float:
+# พื้นฐาน
+try:
+    # โค้ดที่อาจเกิด exception
+    result = 10 / 0
+except ZeroDivisionError:
+    # จัดการ ZeroDivisionError
+    print("หารด้วยศูนย์ไม่ได้")
+
+# except หลายชนิด
+def parse_data(data, index):
     try:
-        value = float(text)
+        value = data[index]
+        return int(value)
+    except IndexError:
+        print(f"Index {index} เกินขอบเขต")
     except ValueError:
-        print(f"'{text}' ไม่ใช่ตัวเลข")
+        print(f"ไม่สามารถแปลง '{value}' เป็น int ได้")
+    except TypeError:
+        print("data ต้องเป็น list หรือ sequence")
+
+print(parse_data(["1", "2", "abc"], 1))   # 2
+print(parse_data(["1", "2", "abc"], 2))   # ValueError
+print(parse_data(["1", "2", "abc"], 10))  # IndexError
+
+# จับหลาย exceptions ใน except เดียว
+def read_number(s):
+    try:
+        return int(s)
+    except (ValueError, TypeError):
+        return 0
+
+print(read_number("42"))    # 42
+print(read_number("abc"))   # 0
+print(read_number(None))    # 0
+
+# Exception object
+try:
+    result = 1 / 0
+except ZeroDivisionError as e:
+    print(f"Error type: {type(e).__name__}")  # ZeroDivisionError
+    print(f"Error message: {e}")               # division by zero
+    print(f"Args: {e.args}")                   # ('division by zero',)
+
+# except Exception - จับทุกอย่าง (ไม่แนะนำ แต่บางครั้งจำเป็น)
+def safe_operation(func, *args):
+    try:
+        return func(*args)
+    except Exception as e:
+        print(f"Unexpected error: {type(e).__name__}: {e}")
+        return None
+
+print(safe_operation(int, "123"))    # 123
+print(safe_operation(int, "abc"))    # error message, None
+```
+
+---
+
+## 3. else และ finally
+
+```python
+# else - รันเมื่อ try ไม่มี exception
+def divide(a, b):
+    try:
+        result = a / b
+    except ZeroDivisionError:
+        print("ไม่สามารถหารด้วยศูนย์")
         return None
     else:
-        # ทำงานเฉพาะถ้า try สำเร็จ
-        print(f"แปลง '{text}' เป็น {value} สำเร็จ")
-        return value
+        # รันเฉพาะเมื่อ try สำเร็จ (ไม่มี exception)
+        print(f"ผลลัพธ์: {result}")
+        return result
 
-read_number("3.14")   # แปลงสำเร็จ
-read_number("hello")  # ValueError
+divide(10, 2)   # ผลลัพธ์: 5.0
+divide(10, 0)   # ไม่สามารถหารด้วยศูนย์
 
-# ===== finally: ทำงานเสมอ ไม่ว่าจะเกิด error หรือไม่ =====
-def open_file(filename: str) -> str:
+# finally - รันเสมอ ไม่ว่าจะมี exception หรือไม่
+def read_file(filepath):
     f = None
     try:
-        f = open(filename, "r", encoding="utf-8")
+        f = open(filepath, "r")
         content = f.read()
         return content
     except FileNotFoundError:
-        print(f"ไม่พบไฟล์: {filename}")
-        return ""
-    except PermissionError:
-        print(f"ไม่มีสิทธิ์อ่านไฟล์: {filename}")
-        return ""
-    finally:
-        # ทำงานเสมอ - ใช้สำหรับ cleanup
-        if f:
-            f.close()
-            print(f"ปิดไฟล์ {filename} แล้ว")
-
-content = open_file("/tmp/demo_write.txt")
-content2 = open_file("/tmp/nonexistent.txt")
-
-# ===== ครบทุก clause =====
-def connect_database(host: str, port: int):
-    connection = None
-    try:
-        print(f"กำลังเชื่อมต่อ {host}:{port}...")
-        if host == "bad_host":
-            raise ConnectionError("เชื่อมต่อไม่ได้")
-        connection = f"Connection({host}:{port})"
-        print("เชื่อมต่อสำเร็จ!")
-        return connection
-    except ConnectionError as e:
-        print(f"❌ Connection Error: {e}")
+        print(f"ไม่พบไฟล์: {filepath}")
         return None
-    else:
-        print("✅ Ready to use database")
+    except PermissionError:
+        print(f"ไม่มีสิทธิ์อ่านไฟล์: {filepath}")
+        return None
     finally:
-        print("🔄 Cleanup connection resources")
-        if connection:
-            print(f"Closing {connection}")
+        if f:
+            f.close()     # ปิดไฟล์เสมอ
+            print("ปิดไฟล์แล้ว")
 
-conn = connect_database("localhost", 5432)
-conn2 = connect_database("bad_host", 5432)
-```
-
-## 4. Exception Hierarchy
-
-```python
-"""
-Python Exception Hierarchy (บางส่วน):
-BaseException
-├── SystemExit
-├── KeyboardInterrupt
-├── GeneratorExit
-└── Exception
-    ├── ArithmeticError
-    │   ├── ZeroDivisionError
-    │   ├── OverflowError
-    │   └── FloatingPointError
-    ├── LookupError
-    │   ├── IndexError
-    │   └── KeyError
-    ├── OSError (IOError)
-    │   ├── FileNotFoundError
-    │   ├── PermissionError
-    │   ├── FileExistsError
-    │   └── ConnectionError
-    ├── ValueError
-    ├── TypeError
-    ├── AttributeError
-    ├── NameError
-    ├── RuntimeError
-    ├── StopIteration
-    └── ImportError
-        └── ModuleNotFoundError
-"""
-
-# ===== จับ parent exception ได้ทุก child =====
-try:
-    items = [1, 2, 3]
-    print(items[10])  # IndexError
-except LookupError as e:
-    print(f"LookupError: {e}")  # จับ IndexError ได้
-
-# ===== ลำดับ except มีความสำคัญ =====
-def check_order():
+# with statement ทำสิ่งเดียวกันได้ดีกว่า
+def read_file_better(filepath):
     try:
-        d = {}
-        d["missing_key"]
-    except KeyError:
-        print("KeyError - specific")
-    except LookupError:
-        print("LookupError - general")  # ไม่ถูกเรียกเพราะ KeyError จับก่อน
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
 
-check_order()
-
-# ⚠️ ถ้าเรียงผิดลำดับ จะได้ general ก่อน
-def wrong_order():
+# ตัวอย่างครบ try/except/else/finally
+def process_number(text):
+    print(f"กำลังประมวลผล: {text!r}")
     try:
-        d = {}
-        d["key"]
-    except LookupError:    # จับก่อน!
-        print("LookupError")
-    except KeyError:       # ไม่ถูกเรียกเลย
-        print("KeyError")
-
-wrong_order()
-
-# ===== ตรวจสอบ exception type =====
-errors = [
-    ValueError("bad value"),
-    KeyError("missing key"),
-    TypeError("wrong type"),
-    ZeroDivisionError("div by zero"),
-]
-
-for error in errors:
-    print(f"{type(error).__name__}: {error}")
-    print(f"  isinstance(ValueError): {isinstance(error, ValueError)}")
-    print(f"  isinstance(Exception): {isinstance(error, Exception)}")
+        n = int(text)
+        result = 100 / n
+    except ValueError:
+        print("  ✗ ValueError: ไม่ใช่ตัวเลข")
+    except ZeroDivisionError:
+        print("  ✗ ZeroDivisionError: ไม่สามารถหารด้วยศูนย์")
+    else:
+        print(f"  ✓ ผลลัพธ์: {result}")
+    finally:
+        print("  → ประมวลผลเสร็จ (ไม่ว่าจะสำเร็จหรือไม่)")
     print()
+
+process_number("5")
+process_number("0")
+process_number("abc")
 ```
 
-## 5. raise - สร้าง Exception เอง
+---
+
+## 4. raise และ Re-raise
 
 ```python
-# ===== raise Exception =====
-def validate_age(age: int) -> None:
+# raise - ยิง exception เอง
+def set_age(age):
     if not isinstance(age, int):
         raise TypeError(f"age ต้องเป็น int ไม่ใช่ {type(age).__name__}")
-    if age < 0:
-        raise ValueError(f"age ต้องไม่ติดลบ (ได้รับ: {age})")
-    if age > 150:
-        raise ValueError(f"age ดูไม่สมเหตุสมผล (ได้รับ: {age})")
+    if age < 0 or age > 150:
+        raise ValueError(f"age ต้องอยู่ระหว่าง 0-150 ไม่ใช่ {age}")
+    return age
 
 try:
-    validate_age(25)    # ผ่าน
-    validate_age(-5)    # ValueError
-except ValueError as e:
-    print(f"Validation Error: {e}")
-
-try:
-    validate_age("25")  # TypeError
+    set_age("twenty")
 except TypeError as e:
-    print(f"Type Error: {e}")
-
-# ===== raise from - Exception Chaining =====
-def fetch_user_data(user_id: int) -> dict:
-    """จำลอง database query"""
-    database = {1: {"name": "Alice"}, 2: {"name": "Bob"}}
-    try:
-        return database[user_id]
-    except KeyError as e:
-        # สร้าง exception ใหม่ที่มีข้อมูลมากกว่า
-        raise ValueError(f"ไม่พบ user_id: {user_id}") from e
+    print(f"TypeError: {e}")
 
 try:
-    user = fetch_user_data(999)
+    set_age(-5)
 except ValueError as e:
+    print(f"ValueError: {e}")
+
+try:
+    set_age(25)
+    print("OK: age=25")
+except (TypeError, ValueError) as e:
     print(f"Error: {e}")
-    print(f"Caused by: {e.__cause__}")
 
-# ===== Re-raise =====
-def process_with_retry(func, max_retries=3):
-    """ลอง execute function กี่ครั้ง"""
-    for attempt in range(1, max_retries + 1):
-        try:
-            return func()
-        except ValueError as e:
-            print(f"Attempt {attempt} failed: {e}")
-            if attempt == max_retries:
-                raise  # re-raise ต้น exception เดิม
-    return None
-
-attempt_count = 0
-def unreliable_function():
-    global attempt_count
-    attempt_count += 1
-    if attempt_count < 3:
-        raise ValueError(f"ล้มเหลวครั้งที่ {attempt_count}")
-    return "สำเร็จ!"
+# raise without argument - re-raise exception ปัจจุบัน
+def handle_error():
+    try:
+        x = 1 / 0
+    except ZeroDivisionError as e:
+        print(f"พบ error: {e}")
+        raise   # re-raise exception เดิม
 
 try:
-    result = process_with_retry(unreliable_function)
-    print(f"ผลลัพธ์: {result}")
-except ValueError as e:
-    print(f"ล้มเหลวทุก retry: {e}")
+    handle_error()
+except ZeroDivisionError:
+    print("จัดการ exception ที่ re-raise")
+
+# raise from - Exception Chaining
+class DatabaseError(Exception):
+    pass
+
+def get_user(user_id):
+    try:
+        # จำลอง DB query ล้มเหลว
+        raise ConnectionError("ไม่สามารถเชื่อมต่อ database")
+    except ConnectionError as e:
+        raise DatabaseError(f"ดึงข้อมูล user {user_id} ล้มเหลว") from e
+
+try:
+    get_user(123)
+except DatabaseError as e:
+    print(f"Error: {e}")
+    print(f"Caused by: {e.__cause__}")  # original exception
+
+# raise from None - ซ่อน original exception
+def simplified_error():
+    try:
+        x = int("abc")
+    except ValueError:
+        raise RuntimeError("การประมวลผลล้มเหลว") from None  # ซ่อน cause
+
+try:
+    simplified_error()
+except RuntimeError as e:
+    print(f"Error: {e}")
+    print(f"Cause: {e.__cause__}")  # None
 ```
 
-## 6. Custom Exceptions
+---
+
+## 5. Custom Exceptions
 
 ```python
-# ===== Custom Exception พื้นฐาน =====
+# สร้าง custom exception
 class AppError(Exception):
-    """Base exception สำหรับแอปพลิเคชัน"""
+    """Base exception สำหรับ application"""
     pass
 
 class ValidationError(AppError):
-    """ข้อมูลไม่ผ่าน validation"""
-    pass
-
-class DatabaseError(AppError):
-    """ปัญหาเกี่ยวกับ database"""
-    pass
-
-class NetworkError(AppError):
-    """ปัญหาเครือข่าย"""
-    pass
-
-# ===== Custom Exception พร้อมข้อมูลเพิ่มเติม =====
-class ValidationError(Exception):
-    """Validation error พร้อม field และ message"""
-    
+    """ข้อมูล input ไม่ถูกต้อง"""
     def __init__(self, field: str, message: str, value=None):
         self.field = field
         self.message = message
         self.value = value
-        super().__init__(f"[{field}] {message}")
-    
-    def __str__(self):
-        base = f"ValidationError: [{self.field}] {self.message}"
-        if self.value is not None:
-            base += f" (ได้รับ: {self.value!r})"
-        return base
+        super().__init__(f"Validation error on '{field}': {message}")
 
-class MultiValidationError(Exception):
-    """หลาย validation errors พร้อมกัน"""
-    
-    def __init__(self, errors: list):
-        self.errors = errors
-        messages = [str(e) for e in errors]
-        super().__init__(f"{len(errors)} validation errors: {'; '.join(messages)}")
-    
-    def __iter__(self):
-        return iter(self.errors)
+class NotFoundError(AppError):
+    """ไม่พบข้อมูลที่ต้องการ"""
+    def __init__(self, resource: str, resource_id):
+        self.resource = resource
+        self.resource_id = resource_id
+        super().__init__(f"{resource} with id={resource_id} not found")
 
-# ===== ตัวอย่างการใช้ =====
-def validate_user(data: dict) -> None:
-    """Validate user data และเก็บ errors ทั้งหมดก่อน raise"""
-    errors = []
+class AuthenticationError(AppError):
+    """การยืนยันตัวตนล้มเหลว"""
+    pass
+
+class AuthorizationError(AppError):
+    """ไม่มีสิทธิ์ดำเนินการ"""
+    def __init__(self, action: str, resource: str):
+        super().__init__(f"Not authorized to {action} {resource}")
+
+class RateLimitError(AppError):
+    """เรียกใช้บ่อยเกินไป"""
+    def __init__(self, limit: int, window: int):
+        self.limit = limit
+        self.window = window
+        super().__init__(f"Rate limit exceeded: max {limit} requests per {window} seconds")
+
+# ใช้งาน
+def create_user(username: str, email: str, age: int):
+    if not username or len(username) < 3:
+        raise ValidationError("username", "ต้องมีอย่างน้อย 3 ตัวอักษร", username)
     
-    # ตรวจสอบ name
-    name = data.get("name", "")
-    if not name:
-        errors.append(ValidationError("name", "จำเป็นต้องกรอก"))
-    elif len(name) < 2:
-        errors.append(ValidationError("name", "ต้องมีอย่างน้อย 2 ตัวอักษร", name))
+    if "@" not in email:
+        raise ValidationError("email", "รูปแบบ email ไม่ถูกต้อง", email)
     
-    # ตรวจสอบ age
-    age = data.get("age")
-    if age is None:
-        errors.append(ValidationError("age", "จำเป็นต้องกรอก"))
-    elif not isinstance(age, int):
-        errors.append(ValidationError("age", "ต้องเป็นตัวเลขจำนวนเต็ม", age))
-    elif age < 0 or age > 120:
-        errors.append(ValidationError("age", "ต้องอยู่ระหว่าง 0-120", age))
+    if not isinstance(age, int) or age < 0 or age > 120:
+        raise ValidationError("age", "อายุต้องเป็นตัวเลข 0-120", age)
     
-    # ตรวจสอบ email
-    import re
-    email = data.get("email", "")
-    if not email:
-        errors.append(ValidationError("email", "จำเป็นต้องกรอก"))
-    elif not re.match(r"[\w.+-]+@[\w-]+\.\w+", email):
-        errors.append(ValidationError("email", "รูปแบบไม่ถูกต้อง", email))
-    
-    if errors:
-        raise MultiValidationError(errors)
+    return {"username": username, "email": email, "age": age}
+
+def get_user(user_id: int, database: dict):
+    if user_id not in database:
+        raise NotFoundError("User", user_id)
+    return database[user_id]
+
+def delete_user(user_id: int, current_user: dict, database: dict):
+    if current_user.get("role") != "admin":
+        raise AuthorizationError("delete", f"user {user_id}")
+    if user_id not in database:
+        raise NotFoundError("User", user_id)
+    del database[user_id]
 
 # ทดสอบ
-test_data = [
-    {"name": "Alice", "age": 25, "email": "alice@example.com"},  # ผ่าน
-    {"name": "B", "age": -5, "email": "bad_email"},               # หลาย errors
-    {"name": "", "age": "thirty"},                                  # หลาย errors
+test_cases = [
+    ("ab", "alice@example.com", 25),          # username สั้นเกิน
+    ("alice", "not-an-email", 25),            # email ผิด
+    ("alice", "alice@example.com", 200),      # อายุเกิน
+    ("alice", "alice@example.com", 25),       # ถูกต้อง
 ]
 
-for data in test_data:
+for username, email, age in test_cases:
     try:
-        validate_user(data)
-        print(f"✅ ข้อมูลถูกต้อง: {data.get('name', '(ไม่มีชื่อ)')}")
-    except MultiValidationError as e:
-        print(f"\n❌ Validation errors ({len(e.errors)} รายการ):")
-        for err in e:
-            print(f"   - {err}")
+        user = create_user(username, email, age)
+        print(f"✓ สร้าง user สำเร็จ: {user['username']}")
+    except ValidationError as e:
+        print(f"✗ {e}")
+
+# Exception hierarchy
+db = {1: {"name": "Alice"}, 2: {"name": "Bob"}}
+admin = {"name": "Admin", "role": "admin"}
+viewer = {"name": "Viewer", "role": "viewer"}
+
+try:
+    get_user(99, db)
+except NotFoundError as e:
+    print(f"\nNotFoundError: {e}")
+    print(f"  resource: {e.resource}, id: {e.resource_id}")
+
+try:
+    delete_user(1, viewer, db)
+except AuthorizationError as e:
+    print(f"\nAuthorizationError: {e}")
+
+# จับ base exception
+try:
+    delete_user(99, admin, db)
+except AppError as e:
+    print(f"\nAppError: {type(e).__name__}: {e}")
 ```
 
-## 7. Context Manager กับ Exception
+---
+
+## 6. Exception Hierarchy
 
 ```python
-# ===== Context Manager สำหรับ resource management =====
-class DatabaseConnection:
-    """จำลอง database connection"""
+# BaseException
+#  ├── SystemExit
+#  ├── KeyboardInterrupt
+#  ├── GeneratorExit
+#  └── Exception
+#       ├── ArithmeticError
+#       │    ├── ZeroDivisionError
+#       │    ├── FloatingPointError
+#       │    └── OverflowError
+#       ├── AttributeError
+#       ├── EOFError
+#       ├── ImportError
+#       │    └── ModuleNotFoundError
+#       ├── LookupError
+#       │    ├── IndexError
+#       │    └── KeyError
+#       ├── MemoryError
+#       ├── NameError
+#       │    └── UnboundLocalError
+#       ├── OSError
+#       │    ├── FileExistsError
+#       │    ├── FileNotFoundError
+#       │    ├── PermissionError
+#       │    └── TimeoutError
+#       ├── RuntimeError
+#       │    └── RecursionError
+#       ├── StopIteration
+#       ├── TypeError
+#       ├── ValueError
+#       │    └── UnicodeError
+#       └── Warning
+
+# จับด้วย parent class
+try:
+    lst = [1, 2, 3]
+    print(lst[10])
+except LookupError:    # จับทั้ง IndexError และ KeyError
+    print("LookupError (IndexError หรือ KeyError)")
+
+# ลำดับ except สำคัญ - specific ก่อน general
+try:
+    d = {"a": 1}
+    print(d["b"])
+except KeyError as e:
+    print(f"KeyError: {e}")       # ← specific
+except LookupError:
+    print("LookupError")          # ← general (ไม่ถึงถ้า KeyError รับไปแล้ว)
+
+# ⚠️ อย่าจับ BaseException (จะจับ SystemExit, KeyboardInterrupt ด้วย)
+try:
+    pass
+except Exception:   # ✓ ดีกว่า
+    pass
+
+# except bare (except:) - ยิ่งไม่ควร
+try:
+    pass
+except:             # ✗ จับทุกอย่างรวม SystemExit!
+    pass
+```
+
+---
+
+## 7. Context Managers
+
+```python
+# Context Manager จัดการ resource อัตโนมัติ
+# __enter__ และ __exit__
+
+# สร้าง context manager ด้วย class
+class Timer:
+    """วัดเวลาการทำงาน"""
+    import time
     
-    def __init__(self, host: str, port: int):
-        self.host = host
-        self.port = port
-        self.connected = False
+    def __init__(self, name=""):
+        self.name = name
     
     def __enter__(self):
-        print(f"เชื่อมต่อ {self.host}:{self.port}...")
-        self.connected = True
+        import time
+        self.start = time.time()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        exc_type: ชนิดของ exception
-        exc_val:  ค่า exception
-        exc_tb:   traceback
-        """
-        print(f"ปิดการเชื่อมต่อ...")
-        self.connected = False
-        
-        if exc_type is not None:
-            print(f"⚠️  เกิด error: {exc_type.__name__}: {exc_val}")
-            # return True  = suppress exception (ไม่ propagate)
-            # return False/None = re-raise exception
-        
-        return False  # ไม่ suppress exception
-    
-    def query(self, sql: str) -> list:
-        if not self.connected:
-            raise RuntimeError("ไม่ได้เชื่อมต่อ")
-        print(f"  Query: {sql[:50]}...")
-        return [{"id": 1, "name": "test"}]
+        import time
+        self.elapsed = time.time() - self.start
+        if self.name:
+            print(f"{self.name}: {self.elapsed:.4f}s")
+        return False  # False = propagate exceptions (True = suppress)
 
-# ===== ใช้งาน =====
-print("=== ทำงานปกติ ===")
-with DatabaseConnection("localhost", 5432) as db:
-    results = db.query("SELECT * FROM users")
-    print(f"  ได้ {len(results)} records")
-print("หลัง with block\n")
+with Timer("computation") as t:
+    result = sum(range(1000000))
 
-print("=== เกิด Exception ===")
-try:
-    with DatabaseConnection("localhost", 5432) as db:
-        results = db.query("SELECT * FROM users")
-        raise ValueError("มีปัญหาใน query")
-except ValueError:
-    print("จัดการ ValueError แล้ว\n")
+print(f"elapsed: {t.elapsed:.4f}s")
 
-# ===== contextlib =====
+# Context manager ด้วย contextlib.contextmanager
 from contextlib import contextmanager
 
 @contextmanager
-def timer(name: str = ""):
-    """จับเวลาการทำงาน"""
-    import time
-    start = time.time()
+def managed_file(filepath, mode="r", encoding="utf-8"):
+    """Context manager สำหรับไฟล์ที่จัดการ error"""
+    f = None
     try:
-        yield  # โค้ดใน with block จะทำงานตรงนี้
+        f = open(filepath, mode, encoding=encoding)
+        yield f
+    except FileNotFoundError:
+        print(f"ไม่พบไฟล์: {filepath}")
+        yield None
+    finally:
+        if f:
+            f.close()
+
+with managed_file("existing.txt", "w") as f:
+    if f:
+        f.write("Hello!")
+
+with managed_file("nonexistent.txt") as f:
+    if f:
+        content = f.read()
+
+# Database transaction context manager
+@contextmanager
+def transaction(connection):
+    """จัดการ database transaction"""
+    try:
+        yield connection
+        connection.commit()  # commit ถ้าสำเร็จ
+        print("Transaction committed")
     except Exception as e:
-        elapsed = time.time() - start
-        print(f"⏱️  {name} ล้มเหลวหลัง {elapsed:.3f}s: {e}")
+        connection.rollback()  # rollback ถ้าเกิด error
+        print(f"Transaction rolled back: {e}")
         raise
-    else:
-        elapsed = time.time() - start
-        print(f"⏱️  {name} สำเร็จใน {elapsed:.3f}s")
 
-import time
-with timer("Fast operation"):
-    time.sleep(0.1)
-    result = sum(range(1000000))
+# Suppress exceptions ด้วย contextlib.suppress
+from contextlib import suppress
 
-try:
-    with timer("Failing operation"):
-        time.sleep(0.05)
-        raise ValueError("เกิดปัญหา!")
-except ValueError:
-    pass
+with suppress(FileNotFoundError):
+    import os
+    os.remove("nonexistent_file.txt")  # ไม่ error
+
+# Nested context managers
+from contextlib import ExitStack
+
+# เปิดหลายไฟล์พร้อมกันแบบ dynamic
+def process_multiple_files(filenames):
+    with ExitStack() as stack:
+        files = [
+            stack.enter_context(
+                open(f, "w", encoding="utf-8")
+            )
+            for f in filenames
+        ]
+        for i, f in enumerate(files):
+            f.write(f"File {i+1}\n")
+    print("ปิดไฟล์ทั้งหมดแล้ว")
+
+process_multiple_files(["file1.txt", "file2.txt", "file3.txt"])
+
+# Cleanup
+import os
+for f in ["existing.txt", "file1.txt", "file2.txt", "file3.txt"]:
+    if os.path.exists(f):
+        os.remove(f)
 ```
+
+---
 
 ## 8. Logging Errors
 
 ```python
 import logging
-import traceback
+from pathlib import Path
 
-# ===== ตั้งค่า Logging =====
+# ตั้งค่า logging
 logging.basicConfig(
     level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
 )
 
-logger = logging.getLogger("myapp")
+# Logger levels: DEBUG < INFO < WARNING < ERROR < CRITICAL
+logger = logging.getLogger(__name__)
 
-# ===== Log levels =====
-# DEBUG    - ข้อมูลสำหรับ debug
-# INFO     - ข้อมูลทั่วไป
-# WARNING  - คำเตือน
-# ERROR    - error ที่ยังทำงานต่อได้
-# CRITICAL - error ร้ายแรง
+logger.debug("Debug message - รายละเอียดสำหรับ developer")
+logger.info("Info message - ข้อมูลทั่วไป")
+logger.warning("Warning - สิ่งที่ควรระวัง")
+logger.error("Error - เกิดข้อผิดพลาด")
+logger.critical("Critical - ปัญหาร้ายแรง")
 
-logger.debug("Debug message")
-logger.info("Info message")
-logger.warning("Warning message")
-logger.error("Error message")
-logger.critical("Critical message")
-
-# ===== Log exceptions =====
-def divide(a, b):
+# logging กับ exception
+def risky_operation(x):
     try:
-        return a / b
+        return 100 / x
     except ZeroDivisionError:
-        logger.error("หารด้วยศูนย์: %s / %s", a, b)
-        raise
-    except TypeError as e:
-        logger.error("Type error: %s", e, exc_info=True)  # เพิ่ม traceback
-        raise
-
-# ===== Log ไปไฟล์ =====
-file_logger = logging.getLogger("file_logger")
-file_handler = logging.FileHandler("/tmp/app_errors.log")
-file_handler.setLevel(logging.ERROR)
-file_handler.setFormatter(logging.Formatter(
-    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-))
-file_logger.addHandler(file_handler)
-
-def safe_execute(func, *args, **kwargs):
-    """ทำงาน function พร้อม log error"""
-    try:
-        return func(*args, **kwargs)
-    except Exception as e:
-        file_logger.error(
-            "ล้มเหลวใน %s: %s",
-            func.__name__,
-            str(e),
-            exc_info=True  # เพิ่ม full traceback
-        )
+        logger.error("หารด้วยศูนย์", exc_info=True)  # exc_info=True เพิ่ม traceback
         return None
 
-# ===== Structured Error Info =====
-def get_error_info(e: Exception) -> dict:
-    """สรุปข้อมูล error"""
-    return {
-        "type": type(e).__name__,
-        "message": str(e),
-        "module": type(e).__module__,
-        "traceback": traceback.format_exc()
-    }
+risky_operation(0)
 
-try:
-    result = 1 / 0
-except Exception as e:
-    info = get_error_info(e)
-    print(f"Error type: {info['type']}")
-    print(f"Message: {info['message']}")
+# ตั้งค่า multiple handlers
+def setup_logger(name: str, log_file: str = None) -> logging.Logger:
+    """ตั้งค่า logger ที่มีทั้ง console และ file"""
+    log = logging.getLogger(name)
+    log.setLevel(logging.DEBUG)
+    
+    formatter = logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s - %(message)s'
+    )
+    
+    # Console handler
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(formatter)
+    log.addHandler(console)
+    
+    # File handler
+    if log_file:
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        log.addHandler(file_handler)
+    
+    return log
+
+app_logger = setup_logger("myapp", "app.log")
+app_logger.info("Application started")
+app_logger.debug("Debug details")
+app_logger.warning("Something unusual happened")
+
+# cleanup
+import os
+if os.path.exists("app.log"):
+    os.remove("app.log")
 ```
+
+---
 
 ## 9. Best Practices
 
 ```python
-# ===== 1. จับ Exception ที่ specific ที่สุด =====
-
-# ❌ ไม่ดี - จับทุกอย่าง
-def bad_example():
-    try:
-        data = {"key": "value"}
-        result = data["missing"]
-    except:  # bare except - ไม่รู้จะจัดการอะไร
-        pass  # ซ่อน error!
-
-# ✅ ดี - จับที่ specific
-def good_example():
-    try:
-        data = {"key": "value"}
-        result = data["missing"]
-    except KeyError as e:
-        print(f"Key ไม่พบ: {e}")
-        result = None
-    return result
-
-# ===== 2. อย่าทิ้ง exception โดยไม่ทำอะไร =====
-
-# ❌ ไม่ดี
-def bad_ignore():
-    try:
-        int("abc")
-    except ValueError:
-        pass  # ไม่ทำอะไร!
-
-# ✅ ดี - อย่างน้อย log ไว้
-def good_with_log():
-    try:
-        int("abc")
-    except ValueError as e:
-        logging.warning("Cannot convert: %s", e)
-
-# ===== 3. ใช้ else สำหรับ "happy path" =====
-
-# ❌ ไม่ดี - โค้ดเยอะใน try
-def bad_structure():
-    try:
-        value = int("42")
-        result = value * 2
-        formatted = f"ผลลัพธ์คือ {result}"
-        return formatted
-    except ValueError:
-        return "ข้อมูลไม่ถูกต้อง"
-
-# ✅ ดี - แยก conversion กับ processing
-def good_structure():
-    try:
-        value = int("42")
-    except ValueError:
-        return "ข้อมูลไม่ถูกต้อง"
-    else:
-        # ทำงานเฉพาะถ้าไม่มี exception
-        result = value * 2
-        return f"ผลลัพธ์คือ {result}"
-
-# ===== 4. Fail Fast =====
-def process_order(order: dict) -> dict:
-    """ตรวจสอบก่อน ค่อยทำ"""
-    
-    # ตรวจสอบก่อน (Guard Clauses)
-    if not order:
-        raise ValueError("order ต้องไม่ว่าง")
-    if "user_id" not in order:
-        raise ValueError("ต้องมี user_id")
-    if "items" not in order or not order["items"]:
-        raise ValueError("ต้องมีสินค้า")
-    
-    # ถึงตรงนี้ข้อมูลถูกต้องแน่นอน
-    total = sum(item["price"] * item["qty"] for item in order["items"])
-    return {"order_id": "ORD001", "total": total, "status": "confirmed"}
-
-# ===== 5. Custom Exception Hierarchy =====
-class MyAppError(Exception):
-    """Base error สำหรับแอป"""
-    def __init__(self, message: str, code: int = None):
-        super().__init__(message)
-        self.code = code
-
-class DatabaseError(MyAppError):
-    """Database related errors"""
+# 1. จับ exceptions ที่ specific (ไม่ bare except)
+# ✗ ผิด
+try:
+    x = int("abc")
+except:
     pass
 
-class ConnectionError(DatabaseError):
-    """Cannot connect to database"""
-    pass
+# ✓ ถูก
+try:
+    x = int("abc")
+except ValueError:
+    x = 0
 
-class QueryError(DatabaseError):
-    """Query execution failed"""
-    pass
-
-class AuthError(MyAppError):
-    """Authentication errors"""
-    pass
-
-class InvalidTokenError(AuthError):
-    """Token is invalid"""
-    pass
-
-class ExpiredTokenError(AuthError):
-    """Token has expired"""
-    pass
-
-# จับทั้ง hierarchy
-def handle_auth(token: str):
+# 2. ไม่ใช้ exception สำหรับ flow control ปกติ
+# ✗ ผิด - ใช้ exception แทน if
+def get_value_bad(d, key):
     try:
-        # simulate auth check
-        if token == "expired":
-            raise ExpiredTokenError("Token หมดอายุแล้ว", code=401)
-        elif token == "invalid":
-            raise InvalidTokenError("Token ไม่ถูกต้อง", code=401)
-    except ExpiredTokenError as e:
-        return {"error": str(e), "action": "refresh_token", "code": e.code}
-    except AuthError as e:
-        return {"error": str(e), "action": "login_again", "code": e.code}
-    else:
-        return {"user": "authenticated"}
+        return d[key]
+    except KeyError:
+        return None
 
-print(handle_auth("expired"))
-print(handle_auth("invalid"))
-print(handle_auth("valid_token"))
-```
+# ✓ ถูก - ใช้ get()
+def get_value_good(d, key):
+    return d.get(key)
 
-## 10. ตัวอย่างโปรเจกต์: Robust File Processor
-
-```python
-"""
-File Processor ที่จัดการ exceptions ครบถ้วน
-"""
-
-import json
-import csv
+# 3. Log หรือ handle exceptions อย่างเหมาะสม
 import logging
-from pathlib import Path
-from typing import Union
+log = logging.getLogger(__name__)
 
-# ตั้งค่า logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
-logger = logging.getLogger(__name__)
+# ✗ ผิด - กลืน exception
+try:
+    x = 1 / 0
+except ZeroDivisionError:
+    pass  # ซ่อน error ทั้งหมด
 
+# ✓ ถูก - log แล้วคืนค่า default
+try:
+    x = 1 / 0
+except ZeroDivisionError:
+    log.warning("หารด้วยศูนย์ คืนค่า default")
+    x = 0
 
-class FileProcessorError(Exception):
-    """Base error สำหรับ FileProcessor"""
-    pass
+# 4. Custom exceptions ต้องมี meaningful messages
+class InsufficientFundsError(Exception):
+    def __init__(self, balance: float, amount: float):
+        self.balance = balance
+        self.amount = amount
+        super().__init__(
+            f"ยอดเงินไม่พอ: มี {balance:.2f} บาท แต่ต้องการ {amount:.2f} บาท"
+        )
 
-class UnsupportedFormatError(FileProcessorError):
-    """รูปแบบไฟล์ไม่รองรับ"""
-    pass
+# 5. Clean up resources ใน finally หรือ context manager
+def process_file(filepath):
+    # ✓ ใช้ with statement
+    try:
+        with open(filepath, "r") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
 
-class FileParseError(FileProcessorError):
-    """Parse ไฟล์ไม่สำเร็จ"""
-    def __init__(self, filename: str, cause: Exception):
-        super().__init__(f"Parse ล้มเหลว: {filename}")
-        self.filename = filename
-        self.cause = cause
+# 6. Raise exceptions at appropriate level
+class UserService:
+    def get_user(self, user_id):
+        # business logic
+        if user_id <= 0:
+            raise ValueError(f"user_id ต้องเป็นบวก ไม่ใช่ {user_id}")
+        # ...
 
+# 7. ใช้ assert สำหรับ internal invariants เท่านั้น
+def calculate_average(numbers):
+    assert len(numbers) > 0, "ต้องมี numbers อย่างน้อย 1 ตัว"
+    return sum(numbers) / len(numbers)
+# ⚠️ assert ถูกปิดได้ด้วย python -O (optimize mode)
+# ใช้ assert สำหรับ debug เท่านั้น ไม่ใช่ validation จาก user input
 
-class FileProcessor:
-    """อ่านและประมวลผลไฟล์หลายรูปแบบ"""
-    
-    SUPPORTED_FORMATS = {".json", ".csv", ".txt"}
-    
-    def __init__(self, base_dir: str = "/tmp"):
-        self.base_dir = Path(base_dir)
-    
-    def read(self, filename: str) -> Union[dict, list, str]:
-        """อ่านไฟล์ตาม extension"""
-        path = self.base_dir / filename
-        
-        # ตรวจสอบ extension
-        suffix = path.suffix.lower()
-        if suffix not in self.SUPPORTED_FORMATS:
-            raise UnsupportedFormatError(
-                f"ไม่รองรับ {suffix}. รองรับ: {self.SUPPORTED_FORMATS}"
-            )
-        
-        # ตรวจสอบว่าไฟล์มีอยู่
-        if not path.exists():
-            raise FileNotFoundError(f"ไม่พบไฟล์: {path}")
-        
-        try:
-            if suffix == ".json":
-                return self._read_json(path)
-            elif suffix == ".csv":
-                return self._read_csv(path)
-            elif suffix == ".txt":
-                return self._read_text(path)
-        except (UnsupportedFormatError, FileNotFoundError):
-            raise
-        except Exception as e:
-            raise FileParseError(filename, e) from e
-    
-    def _read_json(self, path: Path) -> dict:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    
-    def _read_csv(self, path: Path) -> list:
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return list(csv.DictReader(f))
-    
-    def _read_text(self, path: Path) -> str:
-        return path.read_text(encoding="utf-8")
-    
-    def write(self, filename: str, data: Union[dict, list, str]) -> bool:
-        """เขียนไฟล์พร้อมจัดการ errors"""
-        path = self.base_dir / filename
-        suffix = path.suffix.lower()
-        
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            
-            if suffix == ".json":
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-            elif suffix == ".csv" and isinstance(data, list) and data:
-                with open(path, "w", newline="", encoding="utf-8-sig") as f:
-                    writer = csv.DictWriter(f, fieldnames=data[0].keys())
-                    writer.writeheader()
-                    writer.writerows(data)
-            elif suffix == ".txt":
-                path.write_text(str(data), encoding="utf-8")
-            else:
-                raise UnsupportedFormatError(f"เขียน {suffix} ไม่ได้")
-            
-            logger.info("เขียนไฟล์สำเร็จ: %s", path)
-            return True
-            
-        except PermissionError:
-            logger.error("ไม่มีสิทธิ์เขียนไฟล์: %s", path)
-            return False
-        except OSError as e:
-            logger.error("OS Error เขียนไฟล์: %s", e)
-            return False
-    
-    def batch_read(self, filenames: list) -> dict:
-        """อ่านหลายไฟล์พร้อมรายงาน errors"""
-        results = {"success": {}, "errors": {}}
-        
-        for filename in filenames:
-            try:
-                data = self.read(filename)
-                results["success"][filename] = data
-                logger.info("อ่านสำเร็จ: %s", filename)
-            except FileNotFoundError as e:
-                results["errors"][filename] = f"ไม่พบไฟล์: {e}"
-            except UnsupportedFormatError as e:
-                results["errors"][filename] = f"รูปแบบไม่รองรับ: {e}"
-            except FileParseError as e:
-                results["errors"][filename] = f"Parse ล้มเหลว: {e.cause}"
-        
-        return results
-
-
-# ===== ทดสอบ =====
-processor = FileProcessor("/tmp")
-
-# สร้างไฟล์ทดสอบ
-import json, csv
-with open("/tmp/test.json", "w") as f:
-    json.dump({"name": "test", "value": 42}, f)
-with open("/tmp/test.txt", "w") as f:
-    f.write("Hello World")
-
-print("=== Batch Read Test ===")
-results = processor.batch_read([
-    "test.json",
-    "test.txt",
-    "nonexistent.json",
-    "invalid.xyz",
-])
-
-print(f"\nสำเร็จ ({len(results['success'])} ไฟล์):")
-for name, data in results["success"].items():
-    print(f"  ✅ {name}: {str(data)[:50]}")
-
-print(f"\nล้มเหลว ({len(results['errors'])} ไฟล์):")
-for name, error in results["errors"].items():
-    print(f"  ❌ {name}: {error}")
+# 8. Exception groups (Python 3.11+)
+# try:
+#     ...
+# except* ValueError as eg:
+#     for e in eg.exceptions:
+#         print(e)
 ```
-
-## 11. สรุป Part 013
-
-ใน Part นี้คุณได้เรียนรู้:
-
-✅ **try/except** - จับ specific exceptions, ดึงข้อมูล error ด้วย `as`
-✅ **try/except/else/finally** - `else` สำหรับ success path, `finally` สำหรับ cleanup
-✅ **Exception Hierarchy** - BaseException → Exception → specific errors
-✅ **raise** - สร้าง exception เอง, `raise from` สำหรับ exception chaining
-✅ **Re-raise** - ใช้ `raise` โดยไม่มี argument เพื่อ propagate ต่อ
-✅ **Custom Exceptions** - สร้าง exception classes พร้อมข้อมูลเพิ่มเติม
-✅ **Context Manager** - `__enter__`/`__exit__`, `@contextmanager`
-✅ **Logging** - `logging.error()`, `exc_info=True`, file handlers
-✅ **Best Practices** - Specific exceptions, อย่าซ่อน errors, Fail Fast
 
 ---
 
-## ➡️ ถัดไป: Part 014 - Modules and Packages
+## 10. ตัวอย่างโปรแกรมจริง: Robust API Client
+
+```python
+"""
+API Client ที่จัดการ exception อย่างถูกต้อง
+"""
+import json
+import time
+import logging
+from typing import Any, Dict, Optional
+from contextlib import contextmanager
+
+log = logging.getLogger(__name__)
+
+# Custom exceptions
+class APIError(Exception):
+    """Base exception สำหรับ API errors"""
+    def __init__(self, message: str, status_code: int = None, response: dict = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response = response or {}
+
+class NetworkError(APIError):
+    """Network connectivity issues"""
+    pass
+
+class AuthError(APIError):
+    """Authentication/Authorization failed"""
+    pass
+
+class NotFoundError(APIError):
+    """Resource not found"""
+    pass
+
+class RateLimitError(APIError):
+    """Too many requests"""
+    def __init__(self, retry_after: int = 60):
+        self.retry_after = retry_after
+        super().__init__(f"Rate limit exceeded. Retry after {retry_after}s", 429)
+
+class ServerError(APIError):
+    """Server-side errors"""
+    pass
+
+class APIClient:
+    def __init__(self, base_url: str, api_key: str, max_retries: int = 3):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.max_retries = max_retries
+        self._session_active = False
+    
+    def __enter__(self):
+        self._session_active = True
+        log.info(f"เริ่ม session: {self.base_url}")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._session_active = False
+        if exc_type:
+            log.error(f"Session ปิดด้วย error: {exc_val}")
+        else:
+            log.info("Session ปิดปกติ")
+        return False
+    
+    def _handle_response(self, status_code: int, response_data: dict) -> dict:
+        """จัดการ response status codes"""
+        if status_code == 200:
+            return response_data
+        elif status_code == 401:
+            raise AuthError("Authentication ล้มเหลว", status_code, response_data)
+        elif status_code == 403:
+            raise AuthError("ไม่มีสิทธิ์", status_code, response_data)
+        elif status_code == 404:
+            raise NotFoundError("ไม่พบ resource", status_code, response_data)
+        elif status_code == 429:
+            retry_after = int(response_data.get("retry_after", 60))
+            raise RateLimitError(retry_after)
+        elif 500 <= status_code < 600:
+            raise ServerError(f"Server error: {status_code}", status_code, response_data)
+        else:
+            raise APIError(f"Unexpected status: {status_code}", status_code, response_data)
+    
+    def request(self, method: str, endpoint: str, **kwargs) -> dict:
+        """ส่ง API request พร้อม retry logic"""
+        url = f"{self.base_url}{endpoint}"
+        
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                log.debug(f"[{attempt}/{self.max_retries}] {method} {url}")
+                
+                # จำลอง HTTP request
+                status_code, data = self._simulate_request(method, endpoint)
+                return self._handle_response(status_code, data)
+                
+            except RateLimitError as e:
+                log.warning(f"Rate limited. รอ {e.retry_after}s...")
+                if attempt < self.max_retries:
+                    time.sleep(0.1)  # จำลอง (ใช้ retry_after จริง)
+                    continue
+                raise
+            
+            except NetworkError as e:
+                log.error(f"Network error (attempt {attempt}): {e}")
+                if attempt < self.max_retries:
+                    time.sleep(0.1 * attempt)  # exponential backoff
+                    continue
+                raise
+            
+            except (AuthError, NotFoundError):
+                raise  # ไม่ retry สำหรับ errors เหล่านี้
+            
+            except ServerError as e:
+                log.error(f"Server error (attempt {attempt}): {e}")
+                if attempt < self.max_retries:
+                    time.sleep(0.5 * attempt)
+                    continue
+                raise
+        
+        raise APIError("เกินจำนวน retries สูงสุด")
+    
+    def _simulate_request(self, method: str, endpoint: str):
+        """จำลอง HTTP requests"""
+        responses = {
+            "/users": (200, {"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]}),
+            "/users/1": (200, {"id": 1, "name": "Alice", "email": "alice@example.com"}),
+            "/users/999": (404, {"error": "User not found"}),
+            "/admin": (403, {"error": "Forbidden"}),
+            "/error": (500, {"error": "Internal server error"}),
+        }
+        return responses.get(endpoint, (404, {"error": "Not found"}))
+    
+    def get_users(self):
+        return self.request("GET", "/users")
+    
+    def get_user(self, user_id: int):
+        return self.request("GET", f"/users/{user_id}")
+
+# ทดสอบ
+print("=== API Client Test ===")
+
+with APIClient("https://api.example.com", "secret-key") as client:
+    # ดึง users ทั้งหมด
+    try:
+        users = client.get_users()
+        print(f"Users: {users}")
+    except APIError as e:
+        print(f"Error: {e}")
+    
+    # ดึง user เฉพาะ
+    try:
+        user = client.get_user(1)
+        print(f"User 1: {user}")
+    except NotFoundError as e:
+        print(f"Not Found: {e}")
+    except APIError as e:
+        print(f"API Error: {e}")
+    
+    # ดึง user ที่ไม่มี
+    try:
+        user = client.get_user(999)
+    except NotFoundError as e:
+        print(f"Expected: {e} (status={e.status_code})")
+    except APIError as e:
+        print(f"Unexpected: {e}")
+```
+
+---
+
+## 11. Exercises
+
+### Exercise 1: Input Validator
+
+```python
+"""
+สร้าง Input Validator ที่:
+1. validate หลาย fields พร้อมกัน
+2. รวบรวม errors ทั้งหมด (ไม่หยุดที่ error แรก)
+3. คืน ValidationResult ที่มี errors ทั้งหมด
+"""
+from typing import Any, Dict, List, Optional
+import re
+
+class ValidationError(Exception):
+    def __init__(self, errors: Dict[str, List[str]]):
+        self.errors = errors
+        super().__init__(f"Validation failed: {len(errors)} field(s) invalid")
+
+class Validator:
+    def __init__(self):
+        self.errors: Dict[str, List[str]] = {}
+    
+    def _add_error(self, field: str, message: str):
+        self.errors.setdefault(field, []).append(message)
+    
+    def required(self, field: str, value: Any) -> "Validator":
+        if value is None or (isinstance(value, str) and not value.strip()):
+            self._add_error(field, "ห้ามเว้นว่าง")
+        return self
+    
+    def min_length(self, field: str, value: str, min_len: int) -> "Validator":
+        if isinstance(value, str) and len(value) < min_len:
+            self._add_error(field, f"ต้องมีอย่างน้อย {min_len} ตัวอักษร")
+        return self
+    
+    def max_length(self, field: str, value: str, max_len: int) -> "Validator":
+        if isinstance(value, str) and len(value) > max_len:
+            self._add_error(field, f"ต้องมีไม่เกิน {max_len} ตัวอักษร")
+        return self
+    
+    def email(self, field: str, value: str) -> "Validator":
+        pattern = r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+        if isinstance(value, str) and not re.match(pattern, value):
+            self._add_error(field, "รูปแบบ email ไม่ถูกต้อง")
+        return self
+    
+    def range(self, field: str, value: Any, min_val, max_val) -> "Validator":
+        try:
+            n = float(value)
+            if n < min_val or n > max_val:
+                self._add_error(field, f"ต้องอยู่ระหว่าง {min_val} และ {max_val}")
+        except (TypeError, ValueError):
+            self._add_error(field, "ต้องเป็นตัวเลข")
+        return self
+    
+    def validate(self) -> None:
+        if self.errors:
+            raise ValidationError(self.errors)
+
+# ทดสอบ
+def register_user(data: dict):
+    v = Validator()
+    (v.required("username", data.get("username"))
+      .min_length("username", data.get("username", ""), 3)
+      .max_length("username", data.get("username", ""), 50)
+      .required("email", data.get("email"))
+      .email("email", data.get("email", ""))
+      .required("age", data.get("age"))
+      .range("age", data.get("age"), 0, 150))
+    
+    try:
+        v.validate()
+        print(f"✓ ลงทะเบียนสำเร็จ: {data['username']}")
+        return True
+    except ValidationError as e:
+        print(f"✗ Validation ล้มเหลว:")
+        for field, errors in e.errors.items():
+            for error in errors:
+                print(f"  - {field}: {error}")
+        return False
+
+# ทดสอบ
+test_cases = [
+    {"username": "ab", "email": "bad-email", "age": 200},  # หลาย errors
+    {"username": "", "email": "", "age": None},              # ทุก field ว่าง
+    {"username": "alice", "email": "alice@example.com", "age": 25},  # ถูกต้อง
+]
+
+for data in test_cases:
+    print(f"\nInput: {data}")
+    register_user(data)
+```
+
+### Exercise 2: Retry Decorator
+
+```python
+"""
+สร้าง Retry Decorator ที่:
+1. retry function อัตโนมัติเมื่อเกิด exception
+2. กำหนด max_retries, delay, backoff
+3. กำหนดประเภท exception ที่จะ retry
+"""
+import time
+import random
+import functools
+from typing import Tuple, Type
+
+def retry(
+    max_retries: int = 3,
+    delay: float = 1.0,
+    backoff: float = 2.0,
+    exceptions: Tuple[Type[Exception], ...] = (Exception,),
+    on_retry=None
+):
+    """Decorator สำหรับ retry function อัตโนมัติ"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(1, max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    
+                    if attempt == max_retries:
+                        break
+                    
+                    wait_time = delay * (backoff ** (attempt - 1))
+                    
+                    if on_retry:
+                        on_retry(attempt, max_retries, e, wait_time)
+                    
+                    time.sleep(wait_time * 0.01)  # จำลอง (ย่อเวลา)
+            
+            raise last_exception
+        
+        return wrapper
+    return decorator
+
+# จำลอง flaky service
+call_count = 0
+
+@retry(
+    max_retries=3,
+    delay=0.5,
+    backoff=2.0,
+    exceptions=(ConnectionError, TimeoutError),
+    on_retry=lambda attempt, max_r, e, wait: print(f"  Retry {attempt}/{max_r}: {e} (รอ {wait:.2f}s)")
+)
+def unstable_api_call(endpoint: str):
+    """API ที่ไม่เสถียร - ล้มเหลว 2 ครั้งแรก"""
+    global call_count
+    call_count += 1
+    
+    if call_count <= 2:
+        raise ConnectionError(f"Connection refused (attempt {call_count})")
+    
+    call_count = 0  # reset
+    return {"status": "success", "data": f"Response from {endpoint}"}
+
+print("=== Retry Decorator Test ===")
+try:
+    result = unstable_api_call("/api/users")
+    print(f"Success: {result}")
+except (ConnectionError, TimeoutError) as e:
+    print(f"Failed after all retries: {e}")
+
+# ทดสอบที่ล้มเหลวตลอด
+always_fail_count = 0
+
+@retry(max_retries=3, delay=0.1, exceptions=(ValueError,))
+def always_fail():
+    global always_fail_count
+    always_fail_count += 1
+    raise ValueError(f"Always fails (attempt {always_fail_count})")
+
+try:
+    always_fail()
+except ValueError as e:
+    print(f"\nExpected failure: {e}")
+    print(f"Called {always_fail_count} times")
+```
+
+---
+
+## 12. สรุป Part 013
+
+### สิ่งที่เรียนรู้:
+
+✅ **try/except** - จัดการ exceptions  
+✅ **except หลายชนิด** - จับหลาย exception types  
+✅ **else** - รันเมื่อ try สำเร็จ  
+✅ **finally** - รันเสมอ (cleanup)  
+✅ **raise** - ยิง exception  
+✅ **raise from** - Exception chaining  
+✅ **Custom Exceptions** - สร้าง hierarchy  
+✅ **Context Manager** - `with`, `__enter__`, `__exit__`  
+✅ **@contextmanager** - decorator จาก contextlib  
+✅ **logging** - บันทึก error อย่างถูกต้อง  
+✅ **Best Practices** - specific except, log, cleanup  
+
+### Quick Reference:
+
+```python
+# try/except/else/finally
+try:
+    risky_code()
+except SpecificError as e:
+    handle_error(e)
+except (Error1, Error2):
+    handle_multiple()
+else:
+    success_code()
+finally:
+    cleanup()
+
+# Custom exception
+class MyError(Exception):
+    def __init__(self, msg, code=None):
+        super().__init__(msg)
+        self.code = code
+
+# raise
+raise MyError("Something went wrong", code=42)
+raise  # re-raise
+raise NewError("...") from original_error
+
+# Context manager
+class Resource:
+    def __enter__(self): return self
+    def __exit__(self, exc_type, exc_val, tb): return False
+
+with Resource() as r: ...
+
+# @contextmanager
+from contextlib import contextmanager
+@contextmanager
+def managed():
+    try: yield resource
+    finally: cleanup()
+```
+
+---
+
+## ➡️ ถัดไป: Part 014 - Modules และ Packages
+
+ใน Part ถัดไป เราจะเรียนรู้:
+- import statements ทุกรูปแบบ
+- สร้าง packages ของตัวเอง
+- sys.path และ __name__
+- Standard library modules ที่สำคัญ
+
+---
 
 *Part 013/100+ | Python Course - Beginner to World-Class*

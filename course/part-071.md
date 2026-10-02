@@ -418,7 +418,105 @@ MIDDLEWARE = [
 
 ---
 
-## 7. สรุป Part 071
+## 7. Middleware สำหรับ CORS
+
+```python
+# middleware.py (หรือใช้ django-cors-headers)
+class CORSMiddleware:
+    """Custom CORS Middleware"""
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+        from django.conf import settings
+        self.allowed_origins = getattr(settings, 'CORS_ALLOWED_ORIGINS', [])
+        self.allow_all = getattr(settings, 'CORS_ALLOW_ALL_ORIGINS', False)
+    
+    def __call__(self, request):
+        response = self.get_response(request)
+        
+        origin = request.META.get('HTTP_ORIGIN', '')
+        
+        if self.allow_all or origin in self.allowed_origins:
+            response['Access-Control-Allow-Origin'] = origin or '*'
+            response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+            response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-CSRFToken'
+            response['Access-Control-Allow-Credentials'] = 'true'
+            response['Access-Control-Max-Age'] = '86400'
+        
+        return response
+    
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        """จัดการ OPTIONS (preflight) request"""
+        if request.method == 'OPTIONS':
+            from django.http import HttpResponse
+            response = HttpResponse()
+            origin = request.META.get('HTTP_ORIGIN', '')
+            if self.allow_all or origin in self.allowed_origins:
+                response['Access-Control-Allow-Origin'] = origin or '*'
+                response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+                response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+                response.status_code = 200
+            return response
+        return None
+```
+
+---
+
+## 8. Middleware Testing
+
+```python
+# tests/test_middleware.py
+from django.test import TestCase, RequestFactory
+from django.contrib.auth import get_user_model
+from unittest.mock import patch, MagicMock
+import time
+
+User = get_user_model()
+
+class LoggingMiddlewareTest(TestCase):
+    
+    def setUp(self):
+        self.factory = RequestFactory()
+    
+    def test_response_time_header(self):
+        """ทดสอบว่า middleware เพิ่ม X-Response-Time header"""
+        response = self.client.get('/')
+        self.assertIn('X-Response-Time', response)
+    
+    def test_logging_called(self):
+        """ทดสอบว่า logging ถูกเรียก"""
+        with patch('myapp.middleware.logging') as mock_logger:
+            response = self.client.get('/')
+            # ตรวจสอบว่า logger.info ถูกเรียก
+            # mock_logger.getLogger.return_value.info.assert_called()
+
+
+class RateLimitMiddlewareTest(TestCase):
+    
+    def test_normal_request(self):
+        """Request ปกติต้องผ่าน"""
+        response = self.client.get('/api/articles/')
+        self.assertNotEqual(response.status_code, 429)
+    
+    def test_rate_limit_exceeded(self):
+        """เกิน rate limit ต้อง 429"""
+        from django.core.cache import cache
+        from django.conf import settings
+        
+        # จำลองว่าเกิน limit
+        ip = '127.0.0.1'
+        cache.set(f'rate_limit_{ip}', 101)  # เกิน 100
+        
+        response = self.client.get('/api/articles/')
+        self.assertEqual(response.status_code, 429)
+        
+        # cleanup
+        cache.delete(f'rate_limit_{ip}')
+```
+
+---
+
+## 9. สรุป Part 071
 
 ✅ **Middleware** เป็น layer ที่ประมวลผล request/response ก่อนถึง view
 ✅ **Built-in middlewares** เช่น SecurityMiddleware, SessionMiddleware, AuthenticationMiddleware
@@ -426,6 +524,8 @@ MIDDLEWARE = [
 ✅ **Class-based middleware** มี `__init__`, `__call__`, `process_exception` methods
 ✅ **ลำดับ** ใน MIDDLEWARE list สำคัญมาก - request จากบนลงล่าง, response จากล่างขึ้นบน
 ✅ Custom middleware เหมาะสำหรับ: logging, rate limiting, authentication, maintenance mode
+✅ **process_view** เรียกก่อน view แต่หลัง URL routing
+✅ **process_exception** เรียกเมื่อ view raise exception
 
 ## ➡️ ถัดไป: Part 072 - Django Celery Integration
 

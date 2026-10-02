@@ -1,805 +1,490 @@
-# Part 092 - FastAPI Request and Response
-
-## เป้าหมายการเรียนรู้
-
-- จัดการ Path parameters และ Query parameters
-- ใช้ Request Body ด้วย Pydantic models
-- กำหนด Response models และ status codes
-- อัปโหลดไฟล์
-- รับ Form data
-- จัดการ Headers และ Cookies
+# Part 092: FastAPI Background Tasks
+## หลักสูตร Python, Django, Flask, FastAPI
 
 ---
 
-## 1. Path Parameters
+## 🎯 เป้าหมายของ Part นี้
+- ใช้ BackgroundTasks สำหรับงานที่รันหลัง response
+- สร้าง async background tasks
+- ใช้ Celery กับ FastAPI สำหรับ distributed tasks
+- ทำ scheduled tasks
+- จัดการ task status
+
+---
+
+## 1. BackgroundTasks พื้นฐาน
+
+BackgroundTasks ใช้สำหรับงานที่:
+- ไม่จำเป็นต้องรอผลก่อนส่ง response
+- ทำงานหลัง request เสร็จ
+- เช่น: ส่งอีเมล, บันทึก log, อัปเดต statistics
 
 ```python
-from fastapi import FastAPI, Path, HTTPException
-from typing import Optional
+# background_tasks.py
+
+from fastapi import FastAPI, BackgroundTasks
+import time
+import smtplib
+from email.mime.text import MIMEText
 
 app = FastAPI()
 
-# ─────────────────────────────────────────
-# Basic Path Parameter
-# ─────────────────────────────────────────
 
-@app.get("/items/{item_id}")
-async def get_item(item_id: int):
-    """item_id แปลงเป็น int อัตโนมัติ"""
-    return {"item_id": item_id}
+# ---- Background Functions ----
 
-
-# หลาย path parameters
-@app.get("/users/{user_id}/posts/{post_id}")
-async def get_user_post(user_id: int, post_id: int):
-    return {"user_id": user_id, "post_id": post_id}
+def send_welcome_email(email: str, username: str):
+    """ส่งอีเมลต้อนรับ (จำลอง)"""
+    time.sleep(2)  # จำลองเวลาส่งอีเมล
+    print(f"✉️ ส่งอีเมลต้อนรับไปยัง {email} สำหรับ {username}")
 
 
-# ─────────────────────────────────────────
-# Path Parameter พร้อม Validation
-# ─────────────────────────────────────────
+def update_user_statistics(user_id: int):
+    """อัปเดต statistics ของ user"""
+    time.sleep(1)
+    print(f"📊 อัปเดต statistics ของ user {user_id}")
 
-@app.get("/products/{product_id}")
-async def get_product(
-    product_id: int = Path(
-        title="Product ID",
-        description="ID ของสินค้า (ต้องมากกว่า 0)",
-        gt=0,         # greater than
-        le=9999999,   # less than or equal
-        example=1
-    )
+
+def write_log(message: str):
+    """บันทึก log ลงไฟล์"""
+    with open("app.log", "a") as f:
+        f.write(f"{time.ctime()}: {message}\n")
+    print(f"📝 บันทึก log: {message}")
+
+
+# ---- Routes ----
+
+@app.post("/users/register")
+async def register_user(
+    username: str,
+    email: str,
+    background_tasks: BackgroundTasks  # inject BackgroundTasks
 ):
-    return {"product_id": product_id}
+    """สมัครสมาชิก + ส่งอีเมลต้อนรับใน background"""
+    
+    # สร้าง user (รวดเร็ว)
+    user_id = 1  # จำลอง
+    
+    # เพิ่มงานที่จะทำใน background
+    # งานนี้จะทำงาน หลัง จากที่ส่ง response แล้ว
+    background_tasks.add_task(send_welcome_email, email, username)
+    background_tasks.add_task(update_user_statistics, user_id)
+    background_tasks.add_task(write_log, f"New user registered: {username}")
+    
+    # ส่ง response ทันที ไม่รอ background tasks เสร็จ
+    return {
+        "message": f"สมัครสมาชิกสำเร็จ! เราจะส่งอีเมลยืนยันไปที่ {email}",
+        "user_id": user_id
+    }
 
 
-# String path parameter
-@app.get("/users/{username}")
-async def get_user_by_username(
-    username: str = Path(
-        min_length=3,
-        max_length=50,
-        pattern=r'^[a-zA-Z0-9_]+$',  # alphanumeric + underscore
-        example="alice"
-    )
+@app.post("/orders/{order_id}/confirm")
+async def confirm_order(
+    order_id: int,
+    background_tasks: BackgroundTasks
 ):
-    return {"username": username}
+    """ยืนยัน order + ส่งอีเมล + อัปเดต stock ใน background"""
+    
+    # ยืนยัน order ใน database (จำลอง)
+    print(f"✅ ยืนยัน order {order_id}")
+    
+    # Background tasks
+    background_tasks.add_task(send_order_confirmation_email, order_id)
+    background_tasks.add_task(update_inventory, order_id)
+    background_tasks.add_task(notify_warehouse, order_id)
+    
+    return {"message": f"ยืนยัน order {order_id} แล้ว"}
 
 
-# ─────────────────────────────────────────
-# Enum path parameter
-# ─────────────────────────────────────────
-
-from enum import Enum
-
-class ModelName(str, Enum):
-    alexnet = "alexnet"
-    resnet = "resnet"
-    lenet = "lenet"
+def send_order_confirmation_email(order_id: int):
+    time.sleep(1)
+    print(f"✉️ ส่งอีเมลยืนยัน order {order_id}")
 
 
-@app.get("/models/{model_name}")
-async def get_model(model_name: ModelName):
-    """Path parameter ที่เป็น Enum"""
-    if model_name == ModelName.alexnet:
-        return {"model": model_name, "message": "Deep Learning FTW!"}
-    if model_name.value == "lenet":
-        return {"model": model_name, "message": "LeCNN all the images"}
-    return {"model": model_name, "message": "Have some residuals"}
+def update_inventory(order_id: int):
+    time.sleep(0.5)
+    print(f"📦 อัปเดต inventory สำหรับ order {order_id}")
 
 
-# ─────────────────────────────────────────
-# File path parameter
-# ─────────────────────────────────────────
-
-@app.get("/files/{file_path:path}")
-async def read_file(file_path: str):
-    """:path รับ / ในชื่อไฟล์ได้"""
-    # /files/uploads/2024/image.png -> file_path = "uploads/2024/image.png"
-    return {"file_path": file_path}
+def notify_warehouse(order_id: int):
+    time.sleep(0.3)
+    print(f"🏭 แจ้ง warehouse เกี่ยวกับ order {order_id}")
 ```
 
 ---
 
-## 2. Query Parameters
+## 2. Async Background Tasks
 
 ```python
-from fastapi import FastAPI, Query
-from typing import Optional, List, Annotated
+# async_background.py
+
+import asyncio
+import httpx
+from fastapi import FastAPI, BackgroundTasks
 
 app = FastAPI()
 
 
-# ─────────────────────────────────────────
-# Basic Query Parameters
-# ─────────────────────────────────────────
-
-@app.get("/items")
-async def list_items(
-    skip: int = 0,           # default 0
-    limit: int = 10,         # default 10
-    active: bool = True,     # default True, รับ "true", "1", "yes"
-    name: Optional[str] = None  # optional
-):
-    """
-    GET /items?skip=0&limit=10&active=true&name=test
-    """
-    return {
-        "skip": skip,
-        "limit": limit,
-        "active": active,
-        "name": name
-    }
-
-
-# ─────────────────────────────────────────
-# Query Parameter พร้อม Validation
-# ─────────────────────────────────────────
-
-@app.get("/search")
-async def search(
-    q: Annotated[
-        Optional[str],
-        Query(
-            title="Query string",
-            description="คำค้นหา",
-            min_length=2,
-            max_length=100,
-            example="python"
-        )
-    ] = None,
-    page: Annotated[int, Query(ge=1, le=1000, example=1)] = 1,
-    per_page: Annotated[int, Query(ge=1, le=100, example=20)] = 20,
-    sort: Annotated[
-        Optional[str],
-        Query(pattern=r'^(asc|desc)$')
-    ] = "desc",
-):
-    return {
-        "query": q,
-        "page": page,
-        "per_page": per_page,
-        "sort": sort
-    }
-
-
-# ─────────────────────────────────────────
-# Multiple values สำหรับ key เดียวกัน
-# ─────────────────────────────────────────
-
-@app.get("/filter")
-async def filter_items(
-    # GET /filter?tags=python&tags=flask&tags=web
-    tags: Optional[List[str]] = Query(None, description="หลาย tags"),
-    
-    # GET /filter?ids=1&ids=2&ids=3
-    ids: Optional[List[int]] = Query(None),
-):
-    return {"tags": tags, "ids": ids}
-
-
-# ─────────────────────────────────────────
-# Required vs Optional
-# ─────────────────────────────────────────
-
-@app.get("/products")
-async def get_products(
-    category: str,              # Required (ไม่มี default)
-    brand: Optional[str] = None,  # Optional
-    min_price: float = 0.0,    # Optional with default
-):
-    return {
-        "category": category,
-        "brand": brand,
-        "min_price": min_price
-    }
-```
-
----
-
-## 3. Request Body
-
-```python
-from fastapi import FastAPI
-from pydantic import BaseModel, Field, EmailStr
-from typing import Optional, List
-from datetime import date
-
-app = FastAPI()
-
-
-# ─────────────────────────────────────────
-# Basic Request Body
-# ─────────────────────────────────────────
-
-class Item(BaseModel):
-    name: str
-    description: Optional[str] = None
-    price: float
-    tax: Optional[float] = None
-
-
-@app.post("/items")
-async def create_item(item: Item):
-    """FastAPI validate JSON body อัตโนมัติ"""
-    item_dict = item.dict()
-    
-    if item.tax is not None:
-        price_with_tax = item.price + item.tax
-        item_dict.update({"price_with_tax": price_with_tax})
-    
-    return item_dict
-
-
-# ─────────────────────────────────────────
-# Body พร้อม Field validation
-# ─────────────────────────────────────────
-
-class UserCreate(BaseModel):
-    username: str = Field(
-        ...,
-        min_length=3,
-        max_length=50,
-        pattern=r'^[a-zA-Z0-9_]+$',
-        example="alice123"
-    )
-    email: str = Field(..., example="alice@example.com")
-    password: str = Field(..., min_length=8, example="secretpass")
-    full_name: Optional[str] = Field(None, max_length=100)
-    age: Optional[int] = Field(None, ge=0, le=120)
-    birth_date: Optional[date] = None
-    interests: List[str] = Field(default_factory=list)
-    
-    class Config:
-        # ตัวอย่างสำหรับ docs
-        schema_extra = {
-            "example": {
-                "username": "alice123",
-                "email": "alice@example.com",
-                "password": "securepass",
-                "full_name": "Alice Smith",
-                "age": 25
-            }
-        }
-
-
-@app.post("/users")
-async def create_user(user: UserCreate):
-    # user.dict() แปลงเป็น dict
-    user_data = user.dict()
-    # ลบ password ก่อน return (ไม่ควรส่ง password กลับ)
-    user_data.pop('password', None)
-    return {"id": 1, **user_data}
-
-
-# ─────────────────────────────────────────
-# Nested Models
-# ─────────────────────────────────────────
-
-class Address(BaseModel):
-    street: str
-    city: str
-    country: str = "Thailand"
-    zipcode: Optional[str] = None
-
-
-class OrderItem(BaseModel):
-    product_id: int
-    quantity: int = Field(gt=0)
-    unit_price: float = Field(gt=0)
-
-
-class Order(BaseModel):
-    customer_name: str
-    customer_email: str
-    shipping_address: Address
-    items: List[OrderItem] = Field(min_items=1)
-    notes: Optional[str] = None
-
-
-@app.post("/orders", status_code=201)
-async def create_order(order: Order):
-    """Nested model validation"""
-    total = sum(item.quantity * item.unit_price for item in order.items)
-    
-    return {
-        "order_id": "ORD-001",
-        "customer": order.customer_name,
-        "shipping_to": f"{order.shipping_address.city}, {order.shipping_address.country}",
-        "items_count": len(order.items),
-        "total": round(total, 2),
-        "status": "pending"
-    }
-
-
-# ─────────────────────────────────────────
-# Path + Body + Query ร่วมกัน
-# ─────────────────────────────────────────
-
-class ItemUpdate(BaseModel):
-    name: Optional[str] = None
-    price: Optional[float] = Field(None, gt=0)
-    description: Optional[str] = None
-
-
-@app.put("/items/{item_id}")
-async def update_item(
-    item_id: int,           # path parameter
-    item: ItemUpdate,       # request body
-    notify: bool = False,   # query parameter
-):
-    """ใช้ทั้ง path, body, และ query ร่วมกัน"""
-    return {
-        "item_id": item_id,
-        "item": item.dict(exclude_unset=True),
-        "notify": notify
-    }
-```
-
----
-
-## 4. Response Models
-
-```python
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
-from pydantic import BaseModel
-from typing import Optional, List
-
-app = FastAPI()
-
-
-# ─────────────────────────────────────────
-# Response Model
-# ─────────────────────────────────────────
-
-class UserCreate(BaseModel):
-    username: str
-    email: str
-    password: str  # รับ input นี้
-
-
-class UserResponse(BaseModel):
-    id: int
-    username: str
-    email: str
-    # ไม่มี password field - จะไม่ถูก return
-
-
-@app.post(
-    "/users",
-    response_model=UserResponse,  # กำหนด response schema
-    status_code=201,
-    summary="สร้าง user ใหม่",
-    description="สร้าง user และส่งข้อมูลกลับโดยไม่มี password"
-)
-async def create_user(user: UserCreate):
-    """FastAPI จะ filter response ตาม UserResponse model"""
-    # return ทั้งหมดรวม password
-    return {
-        "id": 1,
-        "username": user.username,
-        "email": user.email,
-        "password": user.password,  # จะถูก filter ออก!
-        "internal_data": "hidden"   # จะถูก filter ออก!
-    }
-
-
-# ─────────────────────────────────────────
-# Response Model Options
-# ─────────────────────────────────────────
-
-class Item(BaseModel):
-    name: str
-    price: float
-    description: Optional[str] = None
-    internal_id: Optional[str] = None
-
-
-@app.get(
-    "/items/{item_id}",
-    response_model=Item,
-    response_model_exclude={"internal_id"},      # ซ่อน specific fields
-    response_model_exclude_none=True,             # ซ่อน None fields
-    response_model_exclude_unset=True,            # ซ่อน fields ที่ไม่ได้ set
-)
-async def get_item(item_id: int):
-    return {
-        "name": "Notebook",
-        "price": 59.0,
-        "description": None,    # จะถูกซ่อน (exclude_none=True)
-        "internal_id": "INT-001"  # จะถูกซ่อน (exclude)
-    }
-
-
-# ─────────────────────────────────────────
-# Response Status Codes
-# ─────────────────────────────────────────
-
-from fastapi import status
-
-@app.post("/items", status_code=status.HTTP_201_CREATED)
-async def create_item():
-    return {"id": 1}
-
-@app.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_item(item_id: int):
-    return None  # 204 ไม่ส่งข้อมูลกลับ
-
-
-# ─────────────────────────────────────────
-# Custom Response Types
-# ─────────────────────────────────────────
-
-@app.get("/html", response_class=HTMLResponse)
-async def html_page():
-    """ส่ง HTML response"""
-    return """
-    <html>
-    <body>
-        <h1>Hello from FastAPI!</h1>
-    </body>
-    </html>
-    """
-
-
-@app.get("/redirect")
-async def redirect():
-    """Redirect"""
-    return RedirectResponse(url="/docs", status_code=302)
-
-
-@app.get("/custom-response")
-async def custom_response():
-    """Custom JSONResponse พร้อม custom headers"""
-    data = {"message": "Hello!"}
-    return JSONResponse(
-        content=data,
-        status_code=200,
-        headers={
-            "X-Custom-Header": "my-value",
-            "Cache-Control": "no-cache"
-        }
-    )
-```
-
----
-
-## 5. File Upload
-
-```python
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
-from typing import List
-import os
-import uuid
-import aiofiles
-
-app = FastAPI()
-
-UPLOAD_DIR = "uploads"
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
-
-
-# ─────────────────────────────────────────
-# Single File Upload
-# ─────────────────────────────────────────
-
-@app.post("/upload/image")
-async def upload_image(
-    file: UploadFile = File(..., description="ไฟล์รูปภาพ")
-):
-    """อัปโหลดรูปภาพ"""
-    # ตรวจสอบ content type
-    if file.content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"ไม่รองรับไฟล์ประเภท {file.content_type}"
-        )
-    
-    # อ่านไฟล์
-    contents = await file.read()
-    
-    # ตรวจสอบขนาดไฟล์
-    if len(contents) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"ไฟล์ใหญ่เกิน {MAX_FILE_SIZE // (1024*1024)} MB"
-        )
-    
-    # สร้างชื่อไฟล์ unique
-    ext = os.path.splitext(file.filename)[1].lower()
-    unique_filename = f"{uuid.uuid4().hex}{ext}"
-    
-    # บันทึกไฟล์ (async)
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    filepath = os.path.join(UPLOAD_DIR, unique_filename)
-    
-    async with aiofiles.open(filepath, 'wb') as f:
-        await f.write(contents)
-    
-    return {
-        "filename": unique_filename,
-        "original_name": file.filename,
-        "content_type": file.content_type,
-        "size": len(contents),
-        "url": f"/static/uploads/{unique_filename}"
-    }
-
-
-# ─────────────────────────────────────────
-# Multiple Files Upload
-# ─────────────────────────────────────────
-
-@app.post("/upload/multiple")
-async def upload_multiple(
-    files: List[UploadFile] = File(..., description="หลายไฟล์"),
-):
-    """อัปโหลดหลายไฟล์"""
-    if len(files) > 10:
-        raise HTTPException(status_code=400, detail="อัปโหลดได้สูงสุด 10 ไฟล์")
-    
-    uploaded = []
-    errors = []
-    
-    for file in files:
+# Async background functions
+async def send_webhook(url: str, data: dict):
+    """ส่ง webhook แบบ async"""
+    async with httpx.AsyncClient() as client:
         try:
-            if file.content_type not in ALLOWED_IMAGE_TYPES:
-                errors.append({"file": file.filename, "error": "ประเภทไฟล์ไม่รองรับ"})
-                continue
-            
-            contents = await file.read()
-            ext = os.path.splitext(file.filename)[1].lower()
-            unique_name = f"{uuid.uuid4().hex}{ext}"
-            
-            filepath = os.path.join(UPLOAD_DIR, unique_name)
-            async with aiofiles.open(filepath, 'wb') as f:
-                await f.write(contents)
-            
-            uploaded.append({
-                "filename": unique_name,
-                "original_name": file.filename,
-                "size": len(contents)
-            })
+            response = await client.post(url, json=data, timeout=10.0)
+            print(f"Webhook sent: {response.status_code}")
         except Exception as e:
-            errors.append({"file": file.filename, "error": str(e)})
-    
-    return {
-        "uploaded": uploaded,
-        "errors": errors,
-        "total_uploaded": len(uploaded)
-    }
-```
-
----
-
-## 6. Form Data
-
-```python
-from fastapi import FastAPI, Form, File, UploadFile
-from typing import Optional
-
-app = FastAPI()
+            print(f"Webhook failed: {e}")
 
 
-# ─────────────────────────────────────────
-# Basic Form
-# ─────────────────────────────────────────
-
-@app.post("/login")
-async def login(
-    username: str = Form(...),
-    password: str = Form(...)
-):
-    """รับ Form data (application/x-www-form-urlencoded)"""
-    # ตรวจสอบ username/password
-    if username == "admin" and password == "secret":
-        return {"access_token": "fake-token", "token_type": "bearer"}
-    
-    raise HTTPException(status_code=401, detail="ข้อมูลไม่ถูกต้อง")
-
-
-# ─────────────────────────────────────────
-# Form + File Upload ร่วมกัน
-# ─────────────────────────────────────────
-
-@app.post("/profile/update")
-async def update_profile(
-    # Form fields
-    full_name: str = Form(...),
-    bio: Optional[str] = Form(None),
-    website: Optional[str] = Form(None),
-    
-    # File (optional)
-    avatar: Optional[UploadFile] = File(None),
-):
-    """อัปเดตโปรไฟล์พร้อม avatar"""
-    result = {
-        "full_name": full_name,
-        "bio": bio,
-        "website": website,
-    }
-    
-    if avatar:
-        # บันทึก avatar
-        contents = await avatar.read()
-        result["avatar_filename"] = avatar.filename
-        result["avatar_size"] = len(contents)
-    
-    return result
-```
-
----
-
-## 7. Headers และ Cookies
-
-```python
-from fastapi import FastAPI, Header, Cookie, Response
-from typing import Optional
-
-app = FastAPI()
-
-
-# ─────────────────────────────────────────
-# Request Headers
-# ─────────────────────────────────────────
-
-@app.get("/items")
-async def get_items(
-    # Header parameter (FastAPI แปลง - เป็น _ อัตโนมัติ)
-    # x-api-key -> x_api_key
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    user_agent: Optional[str] = Header(None),
-    accept_language: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None)
-):
-    """รับ request headers"""
-    return {
-        "api_key": x_api_key,
-        "user_agent": user_agent,
-        "language": accept_language
-    }
-
-
-# Require specific header
-@app.get("/secure")
-async def secure_endpoint(
-    api_key: str = Header(..., alias="X-API-Key")
-):
-    """ต้องมี X-API-Key header"""
-    if api_key != "valid-key":
-        raise HTTPException(status_code=403, detail="Invalid API key")
-    return {"data": "secret"}
-
-
-# ─────────────────────────────────────────
-# Response Headers
-# ─────────────────────────────────────────
-
-@app.get("/download")
-async def download(response: Response):
-    """ตั้งค่า response headers"""
-    response.headers["Content-Disposition"] = 'attachment; filename="data.json"'
-    response.headers["X-Custom"] = "my-value"
-    response.headers["Cache-Control"] = "max-age=3600"
-    return {"data": "file content"}
-
-
-# ─────────────────────────────────────────
-# Cookies
-# ─────────────────────────────────────────
-
-@app.post("/set-cookie")
-async def set_cookie(response: Response):
-    """ตั้งค่า cookie"""
-    response.set_cookie(
-        key="session_id",
-        value="abc123",
-        max_age=3600,
-        httponly=True,
-        secure=True,
-        samesite="lax"
+async def process_image(image_path: str, user_id: int):
+    """ประมวลผลรูปภาพ async"""
+    await asyncio.sleep(2)  # จำลองการประมวลผล
+    print(f"Image processed: {image_path} for user {user_id}")
+    # ส่ง notification ให้ user
+    await send_webhook(
+        "http://localhost:8001/notifications",
+        {"user_id": user_id, "message": "รูปภาพของคุณพร้อมแล้ว"}
     )
-    return {"message": "Cookie set!"}
 
 
-@app.get("/read-cookie")
-async def read_cookie(
-    session_id: Optional[str] = Cookie(None),
-    user_pref: Optional[str] = Cookie(None)
+@app.post("/images/upload")
+async def upload_image(
+    image_url: str,
+    user_id: int,
+    background_tasks: BackgroundTasks
 ):
-    """อ่าน cookies"""
+    """Upload รูปภาพ + ประมวลผลใน background"""
+    
+    # บันทึก metadata ทันที
+    saved_path = f"/uploads/{user_id}/image.jpg"
+    
+    # ประมวลผลใน background (async)
+    background_tasks.add_task(process_image, saved_path, user_id)
+    
     return {
-        "session_id": session_id,
-        "user_pref": user_pref
+        "message": "อัปโหลดสำเร็จ! กำลังประมวลผลรูปภาพ",
+        "image_path": saved_path
     }
-
-
-@app.delete("/clear-cookie")
-async def clear_cookie(response: Response):
-    """ลบ cookie"""
-    response.delete_cookie(key="session_id")
-    return {"message": "Cookie deleted"}
 ```
 
 ---
 
-## 8. Request Object
+## 3. Celery กับ FastAPI
 
+Celery เหมาะสำหรับ tasks ที่:
+- ใช้เวลานาน
+- ต้องการ retry เมื่อล้มเหลว
+- ต้องการ distributed processing
+- ต้องการ scheduling
+
+### ติดตั้ง
+```bash
+pip install celery redis
+# ต้องรัน Redis server ด้วย
+```
+
+### Celery Setup
 ```python
-from fastapi import FastAPI, Request
+# celery_app.py
+
+from celery import Celery
+import os
+
+# สร้าง Celery instance
+celery_app = Celery(
+    "worker",
+    broker=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+    backend=os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+    include=["tasks"]  # module ที่มี tasks
+)
+
+# Configuration
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="Asia/Bangkok",
+    enable_utc=True,
+    # Retry settings
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    # Timeout
+    task_soft_time_limit=300,  # 5 นาที
+    task_time_limit=600,       # 10 นาที (hard limit)
+    # Result expiry
+    result_expires=3600,       # 1 ชั่วโมง
+)
+```
+
+### Tasks
+```python
+# tasks.py
+
+from celery_app import celery_app
+import time
+from typing import Optional
+
+
+@celery_app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60  # retry หลัง 60 วินาที
+)
+def send_email_task(self, to: str, subject: str, body: str):
+    """Task ส่งอีเมล"""
+    try:
+        # ส่งอีเมลจริงๆ
+        time.sleep(1)  # จำลอง
+        print(f"Email sent to {to}: {subject}")
+        return {"status": "sent", "to": to}
+    except Exception as exc:
+        # Retry เมื่อล้มเหลว
+        raise self.retry(exc=exc)
+
+
+@celery_app.task
+def generate_report(user_id: int, report_type: str):
+    """สร้าง report (ใช้เวลานาน)"""
+    print(f"Generating {report_type} report for user {user_id}")
+    time.sleep(10)  # จำลองการสร้าง report
+    
+    report_path = f"/reports/{user_id}/{report_type}.pdf"
+    return {"status": "done", "path": report_path}
+
+
+@celery_app.task
+def process_payment(order_id: int, amount: float, payment_method: str):
+    """ประมวลผลการชำระเงิน"""
+    print(f"Processing payment: order {order_id}, amount {amount}")
+    time.sleep(2)
+    
+    # จำลอง
+    success = True
+    return {"status": "success" if success else "failed", "order_id": order_id}
+
+
+# Scheduled Task (Celery Beat)
+@celery_app.on_after_configure.connect
+def setup_periodic_tasks(sender, **kwargs):
+    """ตั้ง scheduled tasks"""
+    # รันทุกวันเวลา 02:00
+    sender.add_periodic_task(
+        crontab(hour=2, minute=0),
+        cleanup_old_files.s(),
+        name='cleanup-daily'
+    )
+    
+    # รันทุก 5 นาที
+    sender.add_periodic_task(
+        300.0,
+        update_statistics.s(),
+        name='update-stats-every-5-minutes'
+    )
+
+
+@celery_app.task
+def cleanup_old_files():
+    """ลบไฟล์เก่า"""
+    print("Cleaning up old files...")
+
+
+@celery_app.task
+def update_statistics():
+    """อัปเดต statistics"""
+    print("Updating statistics...")
+```
+
+### ใช้ Celery ใน FastAPI
+```python
+# main.py
+
+from fastapi import FastAPI, BackgroundTasks
+from tasks import send_email_task, generate_report, process_payment
+from celery.result import AsyncResult
 
 app = FastAPI()
 
 
-@app.get("/request-info")
-async def request_info(request: Request):
-    """ดูข้อมูล request ทั้งหมด"""
-    return {
-        "method": request.method,
-        "url": str(request.url),
-        "path": request.url.path,
-        "query_params": dict(request.query_params),
-        "headers": dict(request.headers),
-        "client_host": request.client.host,
-        "client_port": request.client.port,
-    }
-
-
-@app.post("/raw-body")
-async def raw_body(request: Request):
-    """รับ raw request body"""
-    body = await request.body()
-    json_data = await request.json()
-    form_data = await request.form()
+@app.post("/orders/{order_id}/pay")
+async def pay_order(order_id: int, amount: float, method: str):
+    """ชำระเงิน — ส่ง task ไปให้ Celery"""
+    
+    # ส่ง task ไปทำงานใน Celery worker
+    task = process_payment.delay(order_id, amount, method)
     
     return {
-        "body_length": len(body),
-        "json": json_data,
-        "form": dict(form_data)
+        "message": "กำลังดำเนินการชำระเงิน",
+        "task_id": task.id,  # ใช้ตรวจสอบ status ภายหลัง
+        "order_id": order_id
     }
+
+
+@app.get("/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """ดู status ของ Celery task"""
+    result = AsyncResult(task_id)
+    
+    return {
+        "task_id": task_id,
+        "status": result.status,
+        # PENDING, STARTED, SUCCESS, FAILURE, RETRY
+        "result": result.result if result.ready() else None,
+        "ready": result.ready()
+    }
+
+
+@app.post("/reports/generate")
+async def generate_user_report(user_id: int, report_type: str = "monthly"):
+    """สร้าง report ใน background"""
+    task = generate_report.delay(user_id, report_type)
+    
+    return {
+        "message": "กำลังสร้าง report",
+        "task_id": task.id,
+        "check_status_at": f"/tasks/{task.id}"
+    }
+
+
+@app.post("/users/register")
+async def register_with_email(username: str, email: str):
+    """สมัครสมาชิก + ส่งอีเมลต้อนรับผ่าน Celery"""
+    
+    # สร้าง user ใน database (จำลอง)
+    user_id = 999
+    
+    # ส่งอีเมลผ่าน Celery (ไม่ blocking)
+    send_email_task.delay(
+        to=email,
+        subject="ยินดีต้อนรับ!",
+        body=f"สวัสดีคุณ {username} ยินดีต้อนรับสู่ระบบของเรา"
+    )
+    
+    return {"user_id": user_id, "message": "สมัครสำเร็จ! ตรวจอีเมลของคุณ"}
+```
+
+### รัน Celery Worker
+```bash
+# รัน Celery worker
+celery -A celery_app worker --loglevel=info
+
+# รัน Celery Beat (สำหรับ scheduled tasks)
+celery -A celery_app beat --loglevel=info
+
+# Monitor ด้วย Flower (web UI)
+pip install flower
+celery -A celery_app flower --port=5555
 ```
 
 ---
 
-## Exercises
+## 4. Background Task Status Tracking
 
-### Exercise 1: Product Catalog API
-สร้าง API ที่รับ:
-- Path: `/products/{category}/{product_id}`
-- Query: `?sort=price&order=asc&in_stock=true`
-- Body: `{name, price, description, tags, images[]}`
-- Header: `X-Store-ID`
+```python
+# task_tracker.py
 
-### Exercise 2: Image Upload Service
-สร้าง image upload service:
-- อัปโหลด image + metadata (form + file)
-- ตรวจสอบ file type และ size
-- Resize image ด้วย Pillow
-- ส่ง URL กลับ
+from fastapi import FastAPI, BackgroundTasks
+from pydantic import BaseModel
+from typing import Optional, Dict
+from datetime import datetime, timezone
+import uuid
+import asyncio
 
-### Exercise 3: User Registration with Avatar
-สร้าง registration endpoint ที่รับ:
-- Form data: username, email, password, bio
-- File: avatar image (optional)
-- Validate ทุก fields
-- Return user data (ไม่มี password)
+app = FastAPI()
+
+# ใน production ควรใช้ Redis หรือ database
+tasks_store: Dict[str, dict] = {}
+
+
+class TaskStatus(BaseModel):
+    task_id: str
+    status: str  # pending, running, completed, failed
+    progress: int = 0  # 0-100
+    result: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
+def create_task_entry(task_id: str) -> dict:
+    """สร้าง task entry"""
+    entry = {
+        "task_id": task_id,
+        "status": "pending",
+        "progress": 0,
+        "result": None,
+        "error": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None
+    }
+    tasks_store[task_id] = entry
+    return entry
+
+
+async def process_large_file(task_id: str, file_path: str):
+    """จำลองการประมวลผลไฟล์ขนาดใหญ่"""
+    try:
+        tasks_store[task_id]["status"] = "running"
+        
+        for i in range(10):
+            await asyncio.sleep(1)  # จำลองงาน
+            tasks_store[task_id]["progress"] = (i + 1) * 10
+            print(f"Task {task_id}: {(i+1)*10}%")
+        
+        tasks_store[task_id].update({
+            "status": "completed",
+            "progress": 100,
+            "result": {"processed_rows": 1000, "file": file_path},
+            "completed_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    except Exception as e:
+        tasks_store[task_id].update({
+            "status": "failed",
+            "error": str(e),
+            "completed_at": datetime.now(timezone.utc).isoformat()
+        })
+
+
+@app.post("/process/file")
+async def process_file(
+    file_path: str,
+    background_tasks: BackgroundTasks
+):
+    """เริ่มประมวลผลไฟล์"""
+    task_id = str(uuid.uuid4())
+    create_task_entry(task_id)
+    
+    background_tasks.add_task(process_large_file, task_id, file_path)
+    
+    return {
+        "task_id": task_id,
+        "message": "เริ่มประมวลผลแล้ว",
+        "check_status": f"/tasks/{task_id}"
+    }
+
+
+@app.get("/tasks/{task_id}", response_model=TaskStatus)
+async def get_task_status(task_id: str):
+    """ดู status ของ task"""
+    task = tasks_store.get(task_id)
+    if not task:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"ไม่พบ task {task_id}")
+    return task
+```
 
 ---
 
-## สรุป
+## 5. สรุป Part 092
 
-สิ่งที่เรียนรู้ใน Part นี้:
-- **Path Parameters** พร้อม validation (gt, le, pattern)
-- **Query Parameters** optional/required พร้อม defaults
-- **Request Body** ด้วย Pydantic models
-- **Response Models** filter sensitive data
-- **File Upload** single และ multiple files
-- **Form Data** พร้อมและไม่พร้อม files
-- **Headers และ Cookies** อ่านและเขียน
+✅ **BackgroundTasks** รัน tasks หลัง response โดยใช้ `add_task()`  
+✅ **Async background tasks** รองรับ `async def` functions  
+✅ **Celery** สำหรับ distributed tasks ที่ต้องการ retry, scheduling  
+✅ **Task ID** ใช้ติดตาม status ของ long-running tasks  
+✅ **Celery Beat** สำหรับ scheduled/periodic tasks  
+✅ **Task status tracking** บันทึก progress และ result  
 
 ---
 
-## ลิงก์ Part ถัดไป
+## ➡️ ถัดไป: Part 093 - FastAPI Middleware and CORS
 
-➡️ [Part 093 - FastAPI Pydantic Validation](./part-093.md)
+*Part 092/100+ | Python Course - Beginner to World-Class*

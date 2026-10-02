@@ -444,7 +444,147 @@ def create_audit_log_on_save(sender, instance, created, **kwargs):
 
 ---
 
-## 10. สรุป Part 070
+## 10. Disconnect Signals และ ป้องกัน Infinite Loop
+
+```python
+# ระวัง Infinite Loop: save() -> signal -> save() -> signal -> ...
+
+@receiver(post_save, sender=Article)
+def update_article_stats(sender, instance, **kwargs):
+    """อัปเดตสถิติ - ระวัง infinite loop!"""
+    
+    # BAD: ทำให้ infinite loop
+    # instance.save()  # จะ trigger signal อีกครั้ง!
+    
+    # GOOD: ใช้ update() แทน save()
+    Article.objects.filter(pk=instance.pk).update(
+        word_count=len(instance.content.split())
+    )
+    
+    # หรือ disconnect signal ชั่วคราว
+    # post_save.disconnect(update_article_stats, sender=Article)
+    # instance.save()
+    # post_save.connect(update_article_stats, sender=Article)
+
+
+# ป้องกัน signal ใน test
+from unittest.mock import patch
+
+# ใน test
+with patch('myapp.signals.send_email_on_publish.delay'):
+    article.status = 'published'
+    article.save()
+```
+
+### Disconnect Signal ชั่วคราว
+
+```python
+from contextlib import contextmanager
+from django.db.models.signals import post_save
+
+@contextmanager
+def mute_signals(*signals_to_mute):
+    """Context manager ปิด signals ชั่วคราว"""
+    handlers = {}
+    
+    for signal in signals_to_mute:
+        handlers[signal] = signal.receivers
+        signal.receivers = []
+    
+    try:
+        yield
+    finally:
+        for signal, signal_handlers in handlers.items():
+            signal.receivers = signal_handlers
+
+# ใช้งาน
+def bulk_import_articles(articles_data):
+    """Import หลาย articles โดยไม่ trigger signals"""
+    with mute_signals(post_save):
+        for data in articles_data:
+            Article.objects.create(**data)
+```
+
+---
+
+## 11. Signal Testing
+
+```python
+# tests/test_signals.py
+from django.test import TestCase
+from unittest.mock import patch, MagicMock
+from django.contrib.auth import get_user_model
+from .models import Article
+from .signals import article_published
+
+User = get_user_model()
+
+class SignalTest(TestCase):
+    
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser', password='pass123'
+        )
+    
+    def test_profile_created_on_user_create(self):
+        """ทดสอบ signal สร้าง profile อัตโนมัติ"""
+        from .models import UserProfile
+        
+        new_user = User.objects.create_user(
+            username='newuser', password='pass123'
+        )
+        
+        # ตรวจสอบว่า profile ถูกสร้าง
+        self.assertTrue(UserProfile.objects.filter(user=new_user).exists())
+    
+    @patch('myapp.signals.send_article_notification')
+    def test_notification_sent_on_publish(self, mock_notify):
+        """ทดสอบว่า notification ถูกส่งเมื่อเผยแพร่"""
+        article = Article.objects.create(
+            title='Test', slug='test',
+            author=self.user, content='Content',
+            status='draft'
+        )
+        
+        # เผยแพร่
+        article.status = 'published'
+        article.save()
+        
+        # ตรวจสอบว่า notification ถูกเรียก
+        mock_notify.assert_called_once_with(article)
+    
+    def test_custom_signal_sent(self):
+        """ทดสอบ custom signal"""
+        received_signals = []
+        
+        def handler(sender, article, publisher, **kwargs):
+            received_signals.append({'article': article, 'publisher': publisher})
+        
+        # connect handler
+        article_published.connect(handler)
+        
+        try:
+            article = Article.objects.create(
+                title='Test', slug='test-sig',
+                author=self.user, content='Content'
+            )
+            # ส่ง signal
+            article_published.send(
+                sender=Article,
+                article=article,
+                publisher=self.user
+            )
+            
+            self.assertEqual(len(received_signals), 1)
+            self.assertEqual(received_signals[0]['article'], article)
+        finally:
+            # disconnect handler
+            article_published.disconnect(handler)
+```
+
+---
+
+## 12. สรุป Part 070
 
 ✅ **Signals** เป็น observer pattern สำหรับ loose coupling ระหว่าง components
 ✅ **pre_save/post_save** trigger ก่อน/หลัง model.save()
@@ -453,7 +593,8 @@ def create_audit_log_on_save(sender, instance, created, **kwargs):
 ✅ **@receiver decorator** ลงทะเบียน signal receiver สะดวกกว่า connect()
 ✅ **Custom signals** สร้าง Signal() instance และ send() เมื่อ event เกิดขึ้น
 ✅ ลงทะเบียน signals ใน `AppConfig.ready()` เพื่อให้โหลดถูกเวลา
-✅ ระวัง performance - signals อาจทำให้ save() ช้าลงถ้ามี logic เยอะ
+✅ ระวัง **infinite loop** - ใช้ `update()` แทน `save()` ใน signal receivers
+✅ ทดสอบ signals ด้วย `unittest.mock.patch`
 
 ## ➡️ ถัดไป: Part 071 - Django Middleware
 

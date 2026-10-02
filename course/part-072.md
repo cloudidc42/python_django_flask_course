@@ -454,16 +454,97 @@ Flower แสดง:
 
 ---
 
-## 10. สรุป Part 072
+## 10. Task Chains และ Groups
+
+```python
+from celery import chain, group, chord
+
+# Chain: tasks ทำงานต่อกัน output ของ task แรกเป็น input ของถัดไป
+result = chain(
+    process_image.s('/path/to/img.jpg'),   # .s() = signature
+    upload_to_cdn.s(),
+    update_database.s()
+).delay()
+
+# Group: tasks ทำงานพร้อมกัน (parallel)
+result = group(
+    send_email.s(user_id)
+    for user_id in user_ids
+).delay()
+
+# Chord: group แล้ว callback เมื่อทั้งหมดเสร็จ
+result = chord(
+    group(process_chunk.s(chunk) for chunk in data_chunks),
+    combine_results.s()
+).delay()
+```
+
+### Task Priority
+
+```python
+# กำหนด priority ให้ task
+send_welcome_email.apply_async(
+    args=[user_id],
+    priority=9,    # 0-9 สูงกว่า = สำคัญกว่า (rabbitmq)
+    queue='high_priority'
+)
+
+# settings.py - กำหนด queues
+CELERY_TASK_ROUTES = {
+    'myapp.tasks.send_email': {'queue': 'email'},
+    'myapp.tasks.process_image': {'queue': 'heavy'},
+    'myapp.tasks.generate_report': {'queue': 'reports'},
+}
+
+# รัน worker แยก queue
+# celery -A myproject worker -Q email --concurrency=4
+# celery -A myproject worker -Q heavy --concurrency=2
+```
+
+### Retry Strategy
+
+```python
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),          # retry ทุก exception
+    retry_kwargs={'max_retries': 5},      # retry สูงสุด 5 ครั้ง
+    retry_backoff=True,                   # exponential backoff
+    retry_backoff_max=700,               # สูงสุด 700 วินาที
+    retry_jitter=True,                    # เพิ่ม random เพื่อกระจาย load
+)
+def send_notification(self, user_id, message):
+    """ส่ง notification พร้อม auto-retry"""
+    from .models import Notification
+    from .push import send_push_notification
+    
+    try:
+        user = User.objects.get(pk=user_id)
+        send_push_notification(user.device_token, message)
+        
+        Notification.objects.create(
+            user=user,
+            message=message,
+            status='sent'
+        )
+    except User.DoesNotExist:
+        # ไม่ retry ถ้า user ไม่มี
+        raise Exception(f'User {user_id} not found')
+```
+
+---
+
+## 11. สรุป Part 072
 
 ✅ **Celery** เป็น task queue สำหรับรัน background jobs
 ✅ **Message Broker** (Redis/RabbitMQ) เป็นตัวกลางส่ง tasks
 ✅ **@shared_task** สร้าง task ที่ใช้ได้ทุก app
 ✅ **task.delay()** ส่ง task ไป background
-✅ **task.apply_async()** ส่ง task พร้อม options
+✅ **task.apply_async()** ส่ง task พร้อม options เช่น countdown, eta, expires
 ✅ **Celery Beat** รัน periodic tasks ตาม schedule
 ✅ **django-celery-beat** จัดการ periodic tasks ผ่าน Django Admin
 ✅ **Flower** monitor tasks และ workers
+✅ **chain/group/chord** รวม tasks ทำงานต่อกันหรือพร้อมกัน
+✅ **retry** จัดการ task ที่ล้มเหลวด้วย exponential backoff
 
 ## ➡️ ถัดไป: Part 073 - Django Caching
 

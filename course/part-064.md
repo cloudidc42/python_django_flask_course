@@ -478,7 +478,132 @@ return Response(None, status=status.HTTP_204_NO_CONTENT)
 
 ---
 
-## 9. สรุป Part 064
+## 9. API Documentation ด้วย drf-spectacular
+
+```bash
+pip install drf-spectacular
+```
+
+```python
+# settings.py
+INSTALLED_APPS = [
+    # ...
+    'drf_spectacular',
+]
+
+REST_FRAMEWORK = {
+    # ...
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'My API',
+    'DESCRIPTION': 'API Documentation',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+```
+
+```python
+# urls.py
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
+
+urlpatterns = [
+    # Schema YAML/JSON
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    
+    # Swagger UI
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    
+    # ReDoc
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+]
+```
+
+### เพิ่ม Documentation ใน ViewSet
+
+```python
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+
+class ArticleViewSet(viewsets.ModelViewSet):
+    
+    @extend_schema(
+        summary='รายการบทความ',
+        description='ดึงรายการบทความทั้งหมด รองรับ filtering และ pagination',
+        parameters=[
+            OpenApiParameter(
+                name='status',
+                description='กรองตาม status',
+                required=False,
+                type=str,
+                enum=['draft', 'published', 'archived']
+            ),
+            OpenApiParameter(
+                name='search',
+                description='ค้นหาใน title และ content',
+                required=False,
+                type=str
+            ),
+        ],
+        responses={200: ArticleListSerializer(many=True)},
+        examples=[
+            OpenApiExample(
+                'Example Response',
+                value={
+                    'count': 10,
+                    'results': [{'id': 1, 'title': 'Test Article'}]
+                }
+            )
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+```
+
+---
+
+## 10. ทดสอบ API ด้วย curl
+
+```bash
+# ดู API root
+curl http://localhost:8000/api/
+
+# Login รับ token
+curl -X POST http://localhost:8000/api/auth/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "admin123"}'
+
+# GET articles
+curl -H "Authorization: Token <your-token>" \
+  "http://localhost:8000/api/articles/"
+
+# GET articles with filter
+curl "http://localhost:8000/api/articles/?status=published&search=django"
+
+# POST - สร้าง article
+curl -X POST "http://localhost:8000/api/articles/" \
+  -H "Authorization: Token <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "New Article", "slug": "new-article", "content": "Content here", "status": "draft"}'
+
+# PATCH - แก้ไขบทความ
+curl -X PATCH "http://localhost:8000/api/articles/1/" \
+  -H "Authorization: Token <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Updated Title"}'
+
+# DELETE - ลบบทความ
+curl -X DELETE "http://localhost:8000/api/articles/1/" \
+  -H "Authorization: Token <your-token>"
+```
+
+---
+
+## 11. สรุป Part 064
 
 ✅ **DRF** เป็น framework ยอดนิยมสำหรับสร้าง REST API ด้วย Django
 ✅ **Serializers** แปลง Python objects เป็น JSON และ validate ข้อมูล
@@ -487,6 +612,7 @@ return Response(None, status=status.HTTP_204_NO_CONTENT)
 ✅ **Custom actions** ใช้ `@action` decorator สร้าง endpoints พิเศษ
 ✅ **Browsable API** ช่วย test และ document API ได้จาก browser
 ✅ การตั้งค่า `REST_FRAMEWORK` ใน settings.py ควบคุมพฤติกรรม default
+✅ **drf-spectacular** สร้าง OpenAPI documentation อัตโนมัติ
 
 ## ➡️ ถัดไป: Part 065 - DRF Serializers
 
