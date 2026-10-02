@@ -608,6 +608,311 @@ class BlogURLTests(TestCase):
 
 ---
 
+## 12. URL Middleware และ URL Debugging
+
+### Debug Toolbar (development)
+
+```bash
+pip install django-debug-toolbar
+```
+
+```python
+# settings.py (เฉพาะ development)
+if DEBUG:
+    INSTALLED_APPS += ['debug_toolbar']
+    MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
+    INTERNAL_IPS = ['127.0.0.1']
+```
+
+```python
+# urls.py
+if settings.DEBUG:
+    import debug_toolbar
+    urlpatterns += [
+        path('__debug__/', include(debug_toolbar.urls)),
+    ]
+```
+
+### แสดง URL Patterns ทั้งหมด
+
+```bash
+# แสดง URL patterns ทั้งหมด
+python manage.py show_urls
+
+# ติดตั้ง django-extensions ก่อน
+pip install django-extensions
+```
+
+```python
+# settings.py
+INSTALLED_APPS += ['django_extensions']
+```
+
+```bash
+python manage.py show_urls
+# Output:
+# /blog/                  blog.views.PostListView  blog:post_list
+# /blog/<slug:slug>/      blog.views.PostDetailView blog:post_detail
+# ...
+```
+
+---
+
+## 13. URL Caching และ Performance
+
+```python
+# views.py
+from django.views.decorators.cache import cache_page
+from django.views.decorators.vary import vary_on_cookie
+
+
+# Cache หน้า post list 15 นาที
+@cache_page(60 * 15)
+def post_list(request):
+    posts = Post.objects.filter(status='published')
+    return render(request, 'blog/post_list.html', {'posts': posts})
+
+
+# Cache แต่แตกต่างกันสำหรับแต่ละ user (cookie)
+@cache_page(60 * 15)
+@vary_on_cookie
+def user_dashboard(request):
+    pass
+
+
+# Cache ใน urls.py โดยตรง
+from django.views.decorators.cache import cache_page
+
+urlpatterns = [
+    path('blog/', cache_page(60 * 15)(views.post_list), name='post_list'),
+]
+```
+
+---
+
+## 14. Conditional URL Patterns
+
+```python
+# urls.py
+from django.conf import settings
+from django.urls import path, include
+
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', include('pages.urls')),
+    path('blog/', include('blog.urls')),
+]
+
+# เพิ่ม URLs สำหรับ development เท่านั้น
+if settings.DEBUG:
+    urlpatterns += [
+        path('__debug__/', include('debug_toolbar.urls')),
+        path('test-error/', views.test_error_page),  # ทดสอบ error pages
+    ]
+
+# เพิ่ม media serving ใน development
+if settings.DEBUG:
+    from django.conf.urls.static import static
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+```
+
+---
+
+## 15. URL Patterns สำหรับ API Versioning
+
+```python
+# mysite/urls.py
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    
+    # API v1
+    path('api/v1/', include('blog.api_urls_v1')),
+    
+    # API v2
+    path('api/v2/', include('blog.api_urls_v2')),
+    
+    # Web views
+    path('blog/', include('blog.urls')),
+]
+```
+
+```python
+# blog/api_urls_v1.py
+from django.urls import path
+from . import api_views_v1
+
+app_name = 'blog_api_v1'
+
+urlpatterns = [
+    path('posts/', api_views_v1.PostListView.as_view(), name='post_list'),
+    path('posts/<int:pk>/', api_views_v1.PostDetailView.as_view(), name='post_detail'),
+]
+
+
+# blog/api_urls_v2.py
+from django.urls import path
+from . import api_views_v2
+
+app_name = 'blog_api_v2'
+
+urlpatterns = [
+    path('posts/', api_views_v2.PostListView.as_view(), name='post_list'),
+    path('posts/<slug:slug>/', api_views_v2.PostDetailView.as_view(), name='post_detail'),
+    # v2 มี slug แทน id
+]
+```
+
+---
+
+## 16. URL Patterns กับ i18n (Internationalization)
+
+```python
+# settings.py
+from django.utils.translation import gettext_lazy as _
+
+LANGUAGE_CODE = 'th'
+USE_I18N = True
+
+LANGUAGES = [
+    ('th', _('ไทย')),
+    ('en', _('English')),
+]
+```
+
+```python
+# urls.py
+from django.conf.urls.i18n import i18n_patterns
+from django.urls import path, include
+
+# URLs ที่มี language prefix
+urlpatterns = i18n_patterns(
+    path('admin/', admin.site.urls),
+    path('blog/', include('blog.urls')),
+    # จะได้ /th/blog/, /en/blog/
+    
+    prefix_default_language=False,  # ไม่มี prefix สำหรับ default language
+)
+
+# URLs ที่ไม่มี language prefix
+urlpatterns += [
+    path('api/', include('blog.api_urls')),
+]
+```
+
+```html
+<!-- template: สลับภาษา -->
+{% load i18n %}
+<a href="/th/blog/">ไทย</a>
+<a href="/en/blog/">English</a>
+
+<!-- หรือใช้ set_language -->
+<form action="{% url 'set_language' %}" method="post">
+    {% csrf_token %}
+    <input name="next" type="hidden" value="{{ request.path }}">
+    <select name="language">
+        {% get_available_languages as languages %}
+        {% for lang_code, lang_name in languages %}
+        <option value="{{ lang_code }}"
+                {% if lang_code == request.LANGUAGE_CODE %}selected{% endif %}>
+            {{ lang_name }}
+        </option>
+        {% endfor %}
+    </select>
+    <button type="submit">เปลี่ยนภาษา</button>
+</form>
+```
+
+---
+
+## 17. URL Patterns แบบ Sitemap
+
+```python
+# blog/sitemaps.py
+from django.contrib.sitemaps import Sitemap
+from .models import Post, Category
+
+
+class PostSitemap(Sitemap):
+    """Sitemap สำหรับ posts"""
+    changefreq = 'weekly'
+    priority = 0.8
+    
+    def items(self):
+        return Post.objects.filter(status='published')
+    
+    def lastmod(self, obj):
+        return obj.updated_at
+    
+    def location(self, obj):
+        return obj.get_absolute_url()
+
+
+class CategorySitemap(Sitemap):
+    """Sitemap สำหรับ categories"""
+    changefreq = 'monthly'
+    priority = 0.6
+    
+    def items(self):
+        return Category.objects.all()
+    
+    def location(self, obj):
+        return obj.get_absolute_url()
+
+
+# urls.py
+from django.contrib.sitemaps.views import sitemap
+from blog.sitemaps import PostSitemap, CategorySitemap
+
+sitemaps = {
+    'posts': PostSitemap,
+    'categories': CategorySitemap,
+}
+
+urlpatterns = [
+    path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+    path('robots.txt', views.robots_txt, name='robots_txt'),
+]
+```
+
+```python
+# views.py
+from django.http import HttpResponse
+
+
+def robots_txt(request):
+    """Serve robots.txt"""
+    lines = [
+        'User-agent: *',
+        'Disallow: /admin/',
+        'Disallow: /api/',
+        '',
+        f'Sitemap: {request.build_absolute_uri("/sitemap.xml")}',
+    ]
+    return HttpResponse('\n'.join(lines), content_type='text/plain')
+```
+
+---
+
+## แบบฝึกหัด (เพิ่มเติม)
+
+### แบบฝึกหัดที่ 4: Sitemap
+สร้าง sitemap.xml สำหรับ blog ที่มี:
+- Posts (priority 0.8, changefreq weekly)
+- Categories (priority 0.6, changefreq monthly)
+- Static pages: home, about (priority 1.0)
+
+### แบบฝึกหัดที่ 5: API Versioning
+สร้าง API 2 versions:
+- v1: ใช้ integer pk ใน URL
+- v2: ใช้ slug ใน URL, response format ต่างกัน
+- ทั้ง 2 versions ยังใช้งานได้พร้อมกัน
+
+---
+
 ## สรุป
 
 ในบทนี้เราได้เรียนรู้:
@@ -619,6 +924,10 @@ class BlogURLTests(TestCase):
 - get_absolute_url() ใน models
 - Custom path converters
 - Error handling URLs
+- URL caching
+- API versioning
+- i18n URL patterns
+- Sitemap integration
 
 ---
 
