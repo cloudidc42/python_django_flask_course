@@ -359,7 +359,170 @@ class CustomPermission(permissions.BasePermission):
 
 ---
 
-## 9. สรุป Part 068
+## 9. DjangoModelPermissions
+
+```python
+from rest_framework.permissions import DjangoModelPermissions
+
+class ArticleViewSet(viewsets.ModelViewSet):
+    """ใช้ Django model permissions"""
+    permission_classes = [DjangoModelPermissions]
+    queryset = Article.objects.all()
+    serializer_class = ArticleSerializer
+    
+    # DjangoModelPermissions map HTTP methods กับ Django permissions:
+    # GET    -> view permission  (articles.view_article)
+    # POST   -> add permission   (articles.add_article)
+    # PUT    -> change permission (articles.change_article)
+    # PATCH  -> change permission (articles.change_article)
+    # DELETE -> delete permission (articles.delete_article)
+```
+
+---
+
+## 10. ตัวอย่างการใช้งาน Permissions จริง
+
+### Blog API Permissions
+
+```python
+# permissions.py
+from rest_framework import permissions
+
+class ArticlePermission(permissions.BasePermission):
+    """
+    Permission สำหรับ Blog API:
+    - GET: ทุกคนอ่านได้ (published เท่านั้น)
+    - POST: ต้อง login และมี role teacher/admin
+    - PUT/PATCH: เฉพาะ author หรือ admin
+    - DELETE: เฉพาะ admin
+    """
+    
+    def has_permission(self, request, view):
+        # อ่านได้ทุกคน
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        
+        # ต้อง login สำหรับ write operations
+        if not request.user.is_authenticated:
+            return False
+        
+        # DELETE เฉพาะ admin
+        if request.method == 'DELETE':
+            return request.user.is_staff
+        
+        # POST ต้องมี role ที่เหมาะสม
+        if request.method == 'POST':
+            allowed_roles = ['teacher', 'admin']
+            return getattr(request.user, 'role', '') in allowed_roles or request.user.is_staff
+        
+        return True
+    
+    def has_object_permission(self, request, view, obj):
+        # อ่านได้ทุกคน
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        
+        # DELETE เฉพาะ admin
+        if request.method == 'DELETE':
+            return request.user.is_staff
+        
+        # PUT/PATCH เฉพาะ author หรือ admin
+        return obj.author == request.user or request.user.is_staff
+
+
+class CommentPermission(permissions.BasePermission):
+    """Permission สำหรับ Comments"""
+    
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user and request.user.is_authenticated
+    
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # แก้ไข/ลบได้เฉพาะเจ้าของ comment
+        return obj.author == request.user or request.user.is_staff
+```
+
+```python
+# ใช้ใน ViewSet
+class ArticleViewSet(viewsets.ModelViewSet):
+    queryset = Article.objects.all()
+    serializer_class = ArticleSerializer
+    permission_classes = [ArticlePermission]
+    
+    def get_queryset(self):
+        queryset = Article.objects.all()
+        # ถ้าไม่ใช่ staff แสดงเฉพาะ published
+        if not self.request.user.is_staff:
+            queryset = queryset.filter(status='published')
+        return queryset
+```
+
+---
+
+## 11. Permission Testing
+
+```python
+# tests/test_permissions.py
+from rest_framework.test import APITestCase
+from rest_framework import status
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+class ArticlePermissionTest(APITestCase):
+    
+    def setUp(self):
+        self.regular_user = User.objects.create_user(
+            username='regular', password='pass123'
+        )
+        self.author = User.objects.create_user(
+            username='author', password='pass123'
+        )
+        self.admin = User.objects.create_user(
+            username='admin', password='pass123', is_staff=True
+        )
+        self.article = Article.objects.create(
+            title='Test', slug='test',
+            author=self.author, content='Content',
+            status='published'
+        )
+    
+    def test_anonymous_can_read(self):
+        response = self.client.get(f'/api/articles/{self.article.pk}/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    
+    def test_anonymous_cannot_create(self):
+        response = self.client.post('/api/articles/', {'title': 'New'})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    
+    def test_author_can_update_own(self):
+        self.client.force_authenticate(user=self.author)
+        response = self.client.patch(
+            f'/api/articles/{self.article.pk}/',
+            {'title': 'Updated'}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+    
+    def test_other_user_cannot_update(self):
+        self.client.force_authenticate(user=self.regular_user)
+        response = self.client.patch(
+            f'/api/articles/{self.article.pk}/',
+            {'title': 'Hacked'}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+    
+    def test_admin_can_delete(self):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.delete(f'/api/articles/{self.article.pk}/')
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+```
+
+---
+
+## 12. สรุป Part 068
 
 ✅ **AllowAny** ทุกคนเข้าได้ (ไม่ต้อง login)
 ✅ **IsAuthenticated** ต้อง login เท่านั้น
@@ -369,6 +532,8 @@ class CustomPermission(permissions.BasePermission):
 ✅ **Object-level permissions** ตรวจสอบสิทธิ์ต่อ object เช่น เป็น owner หรือไม่
 ✅ **OR, AND, NOT operators** รวม permissions หลายอัน (DRF 3.9+)
 ✅ **get_permissions()** กำหนด permissions ต่าง action ใน ViewSet
+✅ **DjangoModelPermissions** ใช้ Django model permissions กับ DRF
+✅ ทดสอบ permissions ด้วย `client.force_authenticate(user=...)`
 
 ## ➡️ ถัดไป: Part 069 - DRF Filtering and Pagination
 

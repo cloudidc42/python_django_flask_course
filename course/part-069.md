@@ -463,7 +463,135 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
 ---
 
-## 9. สรุป Part 069
+## 9. ตัวอย่าง Response พร้อม Metadata
+
+```python
+# pagination.py
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+
+class EnhancedPagination(PageNumberPagination):
+    """Pagination พร้อม metadata เพิ่มเติม"""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+    
+    def get_paginated_response(self, data):
+        return Response({
+            'pagination': {
+                'total_items': self.page.paginator.count,
+                'total_pages': self.page.paginator.num_pages,
+                'current_page': self.page.number,
+                'page_size': self.get_page_size(self.request),
+                'has_next': self.page.has_next(),
+                'has_previous': self.page.has_previous(),
+                'next_page': self.page.next_page_number() if self.page.has_next() else None,
+                'previous_page': self.page.previous_page_number() if self.page.has_previous() else None,
+                'next_url': self.get_next_link(),
+                'previous_url': self.get_previous_link(),
+            },
+            'results': data
+        })
+    
+    def get_paginated_response_schema(self, schema):
+        """สำหรับ OpenAPI schema generation"""
+        return {
+            'type': 'object',
+            'properties': {
+                'pagination': {
+                    'type': 'object',
+                    'properties': {
+                        'total_items': {'type': 'integer'},
+                        'total_pages': {'type': 'integer'},
+                        'current_page': {'type': 'integer'},
+                    }
+                },
+                'results': schema,
+            }
+        }
+```
+
+### ตัวอย่าง Response JSON
+
+```json
+{
+    "pagination": {
+        "total_items": 150,
+        "total_pages": 8,
+        "current_page": 1,
+        "page_size": 20,
+        "has_next": true,
+        "has_previous": false,
+        "next_page": 2,
+        "previous_page": null,
+        "next_url": "http://api.example.com/articles/?page=2",
+        "previous_url": null
+    },
+    "results": [
+        {
+            "id": 1,
+            "title": "Django Tutorial",
+            "status": "published",
+            "created_at": "2024-01-15T10:00:00"
+        }
+    ]
+}
+```
+
+---
+
+## 10. Advanced FilterSet
+
+```python
+# filters.py
+from django_filters import rest_framework as filters
+from django.db.models import Q
+from .models import Article
+
+class AdvancedArticleFilter(filters.FilterSet):
+    """FilterSet ขั้นสูง"""
+    
+    # ค้นหาหลาย fields
+    q = filters.CharFilter(method='search_multiple_fields')
+    
+    # Date range
+    date_from = filters.DateFilter(field_name='created_at', lookup_expr='date__gte')
+    date_to = filters.DateFilter(field_name='created_at', lookup_expr='date__lte')
+    
+    # Views range
+    min_views = filters.NumberFilter(field_name='views_count', lookup_expr='gte')
+    max_views = filters.NumberFilter(field_name='views_count', lookup_expr='lte')
+    
+    # Author name search
+    author_name = filters.CharFilter(method='filter_by_author_name')
+    
+    class Meta:
+        model = Article
+        fields = ['status', 'category']
+    
+    def search_multiple_fields(self, queryset, name, value):
+        """ค้นหาใน title และ content พร้อมกัน"""
+        return queryset.filter(
+            Q(title__icontains=value) |
+            Q(content__icontains=value) |
+            Q(excerpt__icontains=value)
+        )
+    
+    def filter_by_author_name(self, queryset, name, value):
+        """ค้นหาตามชื่อ author"""
+        return queryset.filter(
+            Q(author__first_name__icontains=value) |
+            Q(author__last_name__icontains=value) |
+            Q(author__username__icontains=value)
+        )
+
+# ใช้งาน:
+# GET /api/articles/?q=django&date_from=2024-01-01&min_views=100
+```
+
+---
+
+## 11. สรุป Part 069
 
 ✅ **SearchFilter** ค้นหาข้อมูลใน fields ที่กำหนด ด้วย `?search=keyword`
 ✅ **OrderingFilter** เรียงข้อมูล ด้วย `?ordering=field` หรือ `?ordering=-field`
@@ -472,6 +600,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
 ✅ **PageNumberPagination** แบ่งหน้าด้วย ?page=N
 ✅ **LimitOffsetPagination** ใช้ ?limit=N&offset=M
 ✅ **CursorPagination** เหมาะกับ real-time feeds ขนาดใหญ่
+✅ **Custom pagination response** เพิ่ม metadata ตาม API design ของตัวเอง
 
 ## ➡️ ถัดไป: Part 070 - Django Signals
 
