@@ -1,4 +1,4 @@
-# Part 015: OOP Basics
+# Part 015: OOP พื้นฐาน (Object-Oriented Programming)
 ## หลักสูตร Python, Django, Flask, FastAPI
 
 ---
@@ -6,611 +6,951 @@
 ## 🎯 เป้าหมายของ Part นี้
 
 หลังจากเรียนจบ Part นี้ คุณจะสามารถ:
-- สร้าง Class และ Object ได้
-- ใช้ `__init__` กำหนด attributes ได้
-- เขียน instance methods, class methods, static methods ได้
-- ใช้ properties และ encapsulation ได้
-- เข้าใจ `self` ได้อย่างถ่องแท้
-- เขียน `__str__` และ `__repr__` ได้
+- สร้างและใช้งาน Class ได้
+- เข้าใจ \_\_init\_\_ และ self ได้
+- ใช้ Instance, Class, Static Variables ได้
+- สร้าง Instance, Class, Static Methods ได้
+- ใช้ Properties ได้
+- เขียน Magic Methods (\_\_str\_\_, \_\_repr\_\_, \_\_add\_\_, \_\_len\_\_, \_\_eq\_\_) ได้
 
 ---
 
-## 1. Class และ Object พื้นฐาน
-
-OOP (Object-Oriented Programming) คือการเขียนโปรแกรมที่จัดระเบียบโค้ดเป็น "objects" ที่มี data และ behavior
+## 1. Class พื้นฐาน
 
 ```python
-# ===== Class พื้นฐาน =====
+# Class = แบบแผน (blueprint) สำหรับสร้าง objects
+# Object = instance ของ class
 
+# สร้าง class อย่างง่าย
 class Dog:
-    """แทน dog object"""
+    """แทนสุนัข"""
     
-    # Class attribute - shared โดยทุก instances
+    # Class variable - ใช้ร่วมกันทุก instance
     species = "Canis lupus familiaris"
+    count = 0
     
-    # __init__ - constructor, ทำงานเมื่อสร้าง object
+    # __init__ - constructor (เรียกเมื่อสร้าง object)
     def __init__(self, name: str, breed: str, age: int):
-        # Instance attributes - unique สำหรับแต่ละ object
+        """สร้าง Dog instance"""
+        # Instance variables - แต่ละ instance มีเป็นของตัวเอง
         self.name = name
         self.breed = breed
         self.age = age
+        self._tricks = []  # _ = private by convention
+        
+        Dog.count += 1  # เพิ่ม counter
     
-    # Instance method
+    # Instance method - ทำงานกับ instance
     def bark(self) -> str:
         return f"{self.name}: โฮ่ง โฮ่ง!"
     
-    def describe(self) -> str:
-        return f"{self.name} เป็น {self.breed} อายุ {self.age} ปี"
-
-# ===== สร้าง Objects (instances) =====
-dog1 = Dog("บัดดี้", "Golden Retriever", 3)
-dog2 = Dog("แม็กซ์", "Poodle", 2)
-
-# เข้าถึง attributes
-print(dog1.name)       # บัดดี้
-print(dog2.breed)      # Poodle
-print(Dog.species)     # class attribute
-print(dog1.species)    # เข้าถึงผ่าน instance ได้ด้วย
-
-# เรียก methods
-print(dog1.bark())     # บัดดี้: โฮ่ง โฮ่ง!
-print(dog2.describe()) # แม็กซ์ เป็น Poodle อายุ 2 ปี
-
-# แก้ไข attribute
-dog1.age = 4           # อัพเดต age
-print(dog1.describe()) # อายุ 4 ปีแล้ว
-
-# ตรวจสอบ type
-print(f"type: {type(dog1)}")            # <class '__main__.Dog'>
-print(f"isinstance: {isinstance(dog1, Dog)}")  # True
-```
-
-## 2. self - เข้าใจให้ถ่องแท้
-
-```python
-"""
-self คือ reference ไปยัง instance ปัจจุบัน
-Python ส่งมาให้อัตโนมัติเมื่อเรียก instance method
-"""
-
-class Counter:
-    def __init__(self, start: int = 0):
-        self.count = start    # self.count = instance attribute
+    def learn_trick(self, trick: str) -> None:
+        self._tricks.append(trick)
+        print(f"{self.name} เรียนรู้ trick ใหม่: {trick}")
     
-    def increment(self, amount: int = 1):
-        self.count += amount  # แก้ไข attribute ของ instance นี้
-        return self           # return self เพื่อทำ method chaining
+    def show_tricks(self) -> None:
+        if self._tricks:
+            print(f"Tricks ของ {self.name}: {', '.join(self._tricks)}")
+        else:
+            print(f"{self.name} ยังไม่รู้ trick ใด")
     
-    def reset(self):
-        self.count = 0
-        return self
+    def birthday(self) -> None:
+        self.age += 1
+        print(f"Happy Birthday {self.name}! อายุ {self.age} ปีแล้ว")
     
-    def get(self) -> int:
-        return self.count
-
-c1 = Counter(10)
-c2 = Counter(0)
-
-c1.increment(5)
-c2.increment(3)
-
-print(f"c1: {c1.get()}")  # 15
-print(f"c2: {c2.get()}")  # 3
-
-# ===== Method Chaining =====
-# เพราะ return self ทุก method
-result = Counter(0).increment(10).increment(5).increment(3).get()
-print(f"Chained: {result}")  # 18
-
-# ===== self คือ instance เอง =====
-class Printer:
-    def print_self(self):
-        print(f"self is: {self}")
-        print(f"self id: {id(self)}")
-
-p = Printer()
-print(f"p id: {id(p)}")
-p.print_self()  # id จะตรงกัน
-
-# ===== เรียก method เองผ่าน self =====
-class BankAccount:
-    def __init__(self, owner: str, balance: float = 0):
-        self.owner = owner
-        self._balance = balance
-        self._transactions = []
-    
-    def _log(self, action: str, amount: float) -> None:
-        """Private method สำหรับบันทึก transaction"""
-        self._transactions.append({
-            "action": action,
-            "amount": amount,
-            "balance": self._balance
-        })
-    
-    def deposit(self, amount: float) -> None:
-        if amount <= 0:
-            raise ValueError("ต้องฝากมากกว่า 0")
-        self._balance += amount
-        self._log("deposit", amount)  # เรียก method อื่นผ่าน self
-        print(f"ฝาก {amount:,.2f} บาท, ยอดคงเหลือ: {self._balance:,.2f}")
-    
-    def withdraw(self, amount: float) -> None:
-        if amount <= 0:
-            raise ValueError("ต้องถอนมากกว่า 0")
-        if amount > self._balance:
-            raise ValueError("ยอดเงินไม่พอ")
-        self._balance -= amount
-        self._log("withdraw", amount)
-        print(f"ถอน {amount:,.2f} บาท, ยอดคงเหลือ: {self._balance:,.2f}")
-    
-    def show_history(self) -> None:
-        print(f"\nประวัติ {self.owner}:")
-        for t in self._transactions:
-            print(f"  {t['action']:10} {t['amount']:>10,.2f}  → {t['balance']:>10,.2f}")
-
-acc = BankAccount("สมชาย", 1000)
-acc.deposit(500)
-acc.deposit(2000)
-acc.withdraw(750)
-acc.show_history()
-```
-
-## 3. Instance Methods
-
-```python
-class Circle:
-    """แทน circle shape"""
-    
-    PI = 3.14159265358979  # class constant
-    
-    def __init__(self, radius: float):
-        if radius <= 0:
-            raise ValueError(f"radius ต้องมากกว่า 0 (ได้รับ: {radius})")
-        self.radius = radius
-    
-    # ===== Instance methods =====
-    def area(self) -> float:
-        """คำนวณพื้นที่"""
-        return self.PI * self.radius ** 2
-    
-    def circumference(self) -> float:
-        """คำนวณเส้นรอบวง"""
-        return 2 * self.PI * self.radius
-    
-    def scale(self, factor: float) -> "Circle":
-        """สร้าง Circle ใหม่ที่ขยาย/หดส่วน"""
-        return Circle(self.radius * factor)
-    
-    def is_larger_than(self, other: "Circle") -> bool:
-        """เปรียบเทียบกับ Circle อื่น"""
-        return self.area() > other.area()
-    
-    def __str__(self) -> str:
-        return f"Circle(r={self.radius:.2f})"
-    
-    def __repr__(self) -> str:
-        return f"Circle(radius={self.radius!r})"
-
-c1 = Circle(5)
-c2 = Circle(3)
-c3 = c1.scale(2)
-
-print(f"Circle: {c1}")
-print(f"Area: {c1.area():.2f}")
-print(f"Circumference: {c1.circumference():.2f}")
-print(f"c1 > c2: {c1.is_larger_than(c2)}")
-print(f"Scaled: {c3}")
-```
-
-## 4. Class Methods
-
-```python
-from datetime import date
-
-class Person:
-    """แทน person"""
-    
-    _count = 0  # นับ instances
-    
-    def __init__(self, name: str, birthdate: date):
-        self.name = name
-        self.birthdate = birthdate
-        Person._count += 1
-    
-    @property
-    def age(self) -> int:
-        """คำนวณอายุ"""
-        today = date.today()
-        years = today.year - self.birthdate.year
-        if (today.month, today.day) < (self.birthdate.month, self.birthdate.day):
-            years -= 1
-        return years
-    
-    # ===== Class Methods =====
-    @classmethod
-    def from_birth_year(cls, name: str, birth_year: int) -> "Person":
-        """Alternative constructor จากปีเกิด"""
-        birthdate = date(birth_year, 1, 1)
-        return cls(name, birthdate)
-    
-    @classmethod
-    def from_string(cls, data: str) -> "Person":
-        """Alternative constructor จาก string 'name,YYYY-MM-DD'"""
-        name, date_str = data.split(",")
-        year, month, day = map(int, date_str.strip().split("-"))
-        return cls(name.strip(), date(year, month, day))
-    
+    # Class method - ทำงานกับ class (ไม่ใช่ instance)
     @classmethod
     def get_count(cls) -> int:
-        """จำนวน Person instances ทั้งหมด"""
-        return cls._count
+        return cls.count
     
+    @classmethod
+    def create_puppy(cls, name: str, breed: str) -> "Dog":
+        """Factory method สร้าง puppy"""
+        return cls(name, breed, age=0)
+    
+    # Static method - ไม่เกี่ยวกับ instance หรือ class
+    @staticmethod
+    def is_valid_age(age: int) -> bool:
+        return 0 <= age <= 25
+    
+    # __str__ - Human-readable string
     def __str__(self) -> str:
-        return f"{self.name} (อายุ {self.age} ปี)"
+        return f"Dog({self.name}, {self.breed}, อายุ {self.age} ปี)"
+    
+    # __repr__ - Developer string (unambiguous)
+    def __repr__(self) -> str:
+        return f"Dog(name={self.name!r}, breed={self.breed!r}, age={self.age})"
 
-# สร้างด้วยวิธีปกติ
-p1 = Person("สมชาย", date(1993, 5, 15))
-print(p1)
+# สร้าง instances
+dog1 = Dog("Max", "Golden Retriever", 3)
+dog2 = Dog("Bella", "Bulldog", 5)
+puppy = Dog.create_puppy("Charlie", "Poodle")
 
-# สร้างด้วย class methods (alternative constructors)
-p2 = Person.from_birth_year("สมหญิง", 1998)
-print(p2)
+# ใช้งาน
+print(dog1.bark())
+print(dog2.bark())
 
-p3 = Person.from_string("สมศักดิ์, 1985-08-22")
-print(p3)
+dog1.learn_trick("นั่ง")
+dog1.learn_trick("ยืน")
+dog1.show_tricks()
+dog2.show_tricks()
 
-print(f"จำนวน Person ทั้งหมด: {Person.get_count()}")
+dog1.birthday()
+
+print(f"\nClass variable: {Dog.species}")
+print(f"จำนวน dogs: {Dog.get_count()}")
+print(f"Valid age 5: {Dog.is_valid_age(5)}")
+print(f"Valid age 30: {Dog.is_valid_age(30)}")
+
+print(f"\nstr: {dog1}")
+print(f"repr: {repr(dog1)}")
+
+# Instance variables
+print(f"\ndog1.name: {dog1.name}")
+print(f"dog2.name: {dog2.name}")
+
+# Class variables
+print(f"Dog.species: {Dog.species}")
+print(f"dog1.species: {dog1.species}")  # inherit จาก class
+
+# แก้ class variable ที่ instance level
+dog1.species = "Canis lupus familiaris (modified)"  # สร้าง instance variable
+print(f"dog1.species: {dog1.species}")  # instance variable
+print(f"Dog.species: {Dog.species}")    # class variable ไม่เปลี่ยน
+print(f"dog2.species: {dog2.species}")  # ยังใช้ class variable
 ```
 
-## 5. Static Methods
+---
+
+## 2. Instance, Class, Static Variables
 
 ```python
-class MathUtils:
-    """Utility class สำหรับ math operations"""
+class Counter:
+    # Class variable
+    total_instances = 0    # shared across all instances
+    _registry = {}         # class-level registry
+    
+    def __init__(self, name: str, start: int = 0):
+        # Instance variables
+        self.name = name    # public
+        self._value = start  # protected (convention)
+        self.__secret = "hidden"  # private (name mangled)
+        
+        Counter.total_instances += 1
+        Counter._registry[name] = self
+    
+    @property
+    def value(self):
+        return self._value
+    
+    def increment(self, by: int = 1):
+        self._value += by
+    
+    @classmethod
+    def get_all(cls):
+        return dict(cls._registry)
+    
+    @classmethod
+    def reset_all(cls):
+        for counter in cls._registry.values():
+            counter._value = 0
     
     @staticmethod
-    def is_prime(n: int) -> bool:
-        """ตรวจสอบว่าเป็นเลขเฉพาะไหม"""
-        if n < 2:
-            return False
-        if n == 2:
-            return True
-        if n % 2 == 0:
-            return False
-        for i in range(3, int(n**0.5) + 1, 2):
-            if n % i == 0:
-                return False
-        return True
+    def validate_increment(n: int) -> bool:
+        return isinstance(n, int) and n > 0
     
-    @staticmethod
-    def fibonacci(n: int) -> list:
-        """สร้าง Fibonacci sequence n ตัว"""
-        if n <= 0:
-            return []
-        if n == 1:
-            return [0]
-        fib = [0, 1]
-        for _ in range(2, n):
-            fib.append(fib[-1] + fib[-2])
-        return fib
-    
-    @staticmethod
-    def gcd(a: int, b: int) -> int:
-        """หา Greatest Common Divisor"""
-        while b:
-            a, b = b, a % b
-        return a
-    
-    @staticmethod
-    def lcm(a: int, b: int) -> int:
-        """หา Least Common Multiple"""
-        return abs(a * b) // MathUtils.gcd(a, b)
+    def __del__(self):
+        Counter.total_instances -= 1
+        Counter._registry.pop(self.name, None)
 
-# เรียกใช้ผ่าน class (ไม่ต้องสร้าง instance)
-print(f"7 เป็นเลขเฉพาะ: {MathUtils.is_prime(7)}")
-print(f"10 เป็นเลขเฉพาะ: {MathUtils.is_prime(10)}")
-print(f"Fibonacci 10 ตัว: {MathUtils.fibonacci(10)}")
-print(f"GCD(12, 8): {MathUtils.gcd(12, 8)}")
-print(f"LCM(4, 6): {MathUtils.lcm(4, 6)}")
+# ทดสอบ
+c1 = Counter("visits", 100)
+c2 = Counter("errors", 0)
+c3 = Counter("warnings", 5)
 
-# เรียกผ่าน instance ก็ได้ (แต่ไม่จำเป็น)
-utils = MathUtils()
-primes = [n for n in range(2, 50) if utils.is_prime(n)]
-print(f"เลขเฉพาะ 2-50: {primes}")
+print(f"Total: {Counter.total_instances}")  # 3
 
-# ===== เปรียบเทียบ =====
-"""
-Instance method:  self เป็น argument แรก, เข้าถึง instance data ได้
-Class method:     cls เป็น argument แรก, เข้าถึง class data ได้
-Static method:    ไม่มี special argument, เหมือน function ธรรมดา
-                  แต่อยู่ใน namespace ของ class
-"""
+c1.increment(10)
+c2.increment()
+c3.increment(3)
+
+print(f"visits: {c1.value}")    # 110
+print(f"errors: {c2.value}")    # 1
+print(f"warnings: {c3.value}")  # 8
+
+# ดู name mangling
+print(f"Public: {c1.name}")
+print(f"Protected: {c1._value}")
+# c1.__secret  # AttributeError!
+print(f"Mangled: {c1._Counter__secret}")  # _ClassName__attr
+
+# Class registry
+print("\nAll counters:")
+for name, counter in Counter.get_all().items():
+    print(f"  {name}: {counter.value}")
+
+Counter.reset_all()
+print("\nAfter reset:")
+for name, counter in Counter.get_all().items():
+    print(f"  {name}: {counter.value}")
 ```
 
-## 6. Properties และ Encapsulation
+---
+
+## 3. Properties (Getters/Setters)
 
 ```python
 class Temperature:
-    """แปลงหน่วยอุณหภูมิ"""
+    """จัดการอุณหภูมิพร้อม validation"""
     
-    def __init__(self, celsius: float = 0):
-        self._celsius = celsius  # _name = convention สำหรับ protected
+    def __init__(self, celsius: float = 0.0):
+        self._celsius = celsius  # internal storage
     
-    # ===== Property - getter =====
     @property
     def celsius(self) -> float:
-        """อุณหภูมิเซลเซียส"""
+        """Getter สำหรับ celsius"""
         return self._celsius
     
-    # ===== Property - setter =====
     @celsius.setter
     def celsius(self, value: float) -> None:
+        """Setter สำหรับ celsius พร้อม validation"""
+        if not isinstance(value, (int, float)):
+            raise TypeError("อุณหภูมิต้องเป็นตัวเลข")
         if value < -273.15:
-            raise ValueError(f"ต่ำกว่า absolute zero ไม่ได้ (ได้รับ: {value})")
-        self._celsius = value
+            raise ValueError("อุณหภูมิต่ำกว่า Absolute Zero ไม่ได้")
+        self._celsius = float(value)
     
-    # ===== Computed properties (read-only) =====
+    @celsius.deleter
+    def celsius(self) -> None:
+        print("Deleting temperature...")
+        self._celsius = 0.0
+    
     @property
     def fahrenheit(self) -> float:
-        return (self._celsius * 9/5) + 32
-    
-    @property
-    def kelvin(self) -> float:
-        return self._celsius + 273.15
+        """แปลงเป็น Fahrenheit (computed property)"""
+        return self._celsius * 9/5 + 32
     
     @fahrenheit.setter
     def fahrenheit(self, value: float) -> None:
-        self.celsius = (value - 32) * 5/9  # ใช้ setter ของ celsius
+        self.celsius = (value - 32) * 5/9
+    
+    @property
+    def kelvin(self) -> float:
+        """แปลงเป็น Kelvin (read-only)"""
+        return self._celsius + 273.15
     
     def __str__(self) -> str:
-        return (f"{self._celsius:.2f}°C = "
-                f"{self.fahrenheit:.2f}°F = "
-                f"{self.kelvin:.2f}K")
+        return f"{self.celsius:.1f}°C / {self.fahrenheit:.1f}°F / {self.kelvin:.2f}K"
 
-temp = Temperature(25)
-print(temp)  # 25.00°C = 77.00°F = 298.15K
+# ทดสอบ
+t = Temperature(25.0)
+print(t)  # 25.0°C / 77.0°F / 298.15K
 
-temp.celsius = 100
-print(f"100°C = {temp.fahrenheit}°F")  # 212.0
+t.celsius = 100.0
+print(t)  # 100.0°C / 212.0°F / 373.15K
 
-temp.fahrenheit = 32
-print(f"32°F = {temp.celsius}°C")  # 0.0
+t.fahrenheit = 32.0  # 0°C
+print(t)  # 0.0°C / 32.0°F / 273.15K
 
+# Validation
 try:
-    temp.celsius = -300  # ต่ำกว่า absolute zero
+    t.celsius = -300   # ต่ำกว่า absolute zero
 except ValueError as e:
     print(f"Error: {e}")
 
-# ===== Encapsulation ใน Class ที่ซับซ้อนขึ้น =====
-class Employee:
-    """พนักงาน - แสดง encapsulation"""
-    
-    def __init__(self, employee_id: str, name: str, salary: float):
-        self.employee_id = employee_id
-        self.name = name
-        self._salary = salary        # protected
-        self.__tax_rate = 0.15       # private (name mangling)
-        self._raise_history = []
+try:
+    t.celsius = "hot"  # ไม่ใช่ตัวเลข
+except TypeError as e:
+    print(f"Error: {e}")
+
+# Read-only property
+try:
+    t.kelvin = 300  # kelvin ไม่มี setter
+except AttributeError as e:
+    print(f"Error: {e}")
+
+# Delete property
+del t.celsius
+print(f"หลัง delete: {t.celsius}°C")
+
+# ตัวอย่างเพิ่มเติม: Person class
+class Person:
+    def __init__(self, first_name: str, last_name: str, age: int):
+        self.first_name = first_name
+        self.last_name = last_name
+        self.age = age
     
     @property
-    def salary(self) -> float:
-        return self._salary
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}"
     
-    @salary.setter
-    def salary(self, value: float) -> None:
-        if value < 0:
-            raise ValueError("เงินเดือนต้องไม่ติดลบ")
-        old_salary = self._salary
-        self._salary = value
-        if old_salary > 0:
-            change = ((value - old_salary) / old_salary) * 100
-            self._raise_history.append({
-                "old": old_salary,
-                "new": value,
-                "change_pct": round(change, 2)
-            })
+    @full_name.setter
+    def full_name(self, name: str) -> None:
+        parts = name.strip().split(None, 1)
+        self.first_name = parts[0]
+        self.last_name = parts[1] if len(parts) > 1 else ""
     
     @property
-    def net_salary(self) -> float:
-        """เงินเดือนหลังหักภาษี"""
-        return self._salary * (1 - self.__tax_rate)
+    def age(self) -> int:
+        return self._age
     
-    @property
-    def raise_history(self) -> list:
-        return self._raise_history.copy()  # return copy เพื่อความปลอดภัย
-    
-    def give_raise(self, percentage: float) -> None:
-        """ขึ้นเงินเดือน"""
-        new_salary = self._salary * (1 + percentage / 100)
-        self.salary = new_salary
-        print(f"ขึ้นเงินเดือน {self.name}: {self._salary:,.2f} บาท (+{percentage}%)")
-    
-    def __str__(self) -> str:
-        return f"Employee({self.employee_id}: {self.name}, {self._salary:,.2f} บาท)"
-
-emp = Employee("E001", "สมชาย ใจดี", 35000)
-print(emp)
-print(f"Net salary: {emp.net_salary:,.2f} บาท")
-
-emp.give_raise(10)
-emp.give_raise(15)
-
-print("\nประวัติการขึ้นเงินเดือน:")
-for raise_record in emp.raise_history:
-    print(f"  {raise_record['old']:,.2f} → {raise_record['new']:,.2f} "
-          f"({raise_record['change_pct']:+.1f}%)")
-
-# ===== Name Mangling =====
-print(f"\nPrivate attribute: {emp._Employee__tax_rate}")  # name mangling
-```
-
-## 7. `__str__` และ `__repr__`
-
-```python
-class Book:
-    """หนังสือ"""
-    
-    def __init__(self, title: str, author: str, isbn: str, price: float):
-        self.title = title
-        self.author = author
-        self.isbn = isbn
-        self.price = price
-    
-    def __str__(self) -> str:
-        """สำหรับ end users - readable"""
-        return f'"{self.title}" โดย {self.author} ({self.price:,.2f} บาท)'
+    @age.setter
+    def age(self, value: int) -> None:
+        if not isinstance(value, int) or value < 0:
+            raise ValueError("อายุต้องเป็น int ที่ไม่ติดลบ")
+        self._age = value
     
     def __repr__(self) -> str:
-        """สำหรับ developers - unambiguous"""
-        return (f"Book(title={self.title!r}, "
-                f"author={self.author!r}, "
-                f"isbn={self.isbn!r}, "
-                f"price={self.price})")
-    
-    def __len__(self) -> int:
-        """len(book) = จำนวนตัวอักษรในชื่อ"""
-        return len(self.title)
-    
-    def __eq__(self, other) -> bool:
-        """เปรียบเทียบด้วย isbn"""
-        if not isinstance(other, Book):
-            return False
-        return self.isbn == other.isbn
-    
-    def __lt__(self, other) -> bool:
-        """เรียงลำดับตามราคา"""
-        if not isinstance(other, Book):
-            return NotImplemented
-        return self.price < other.price
-    
-    def __hash__(self):
-        """ใช้ใน set/dict"""
-        return hash(self.isbn)
+        return f"Person(full_name={self.full_name!r}, age={self.age})"
 
-b1 = Book("Python Programming", "สมชาย", "978-1234567890", 599)
-b2 = Book("Django Web Dev", "สมหญิง", "978-0987654321", 799)
-b3 = Book("Python Programming", "สมชาย", "978-1234567890", 599)
+p = Person("Alice", "Smith", 30)
+print(p.full_name)   # Alice Smith
 
-# str() สำหรับ users
-print(str(b1))      # "Python Programming" โดย สมชาย (599.00 บาท)
-print(b1)           # เรียก __str__ อัตโนมัติ
+p.full_name = "Bob Johnson"
+print(p.first_name)  # Bob
+print(p.last_name)   # Johnson
 
-# repr() สำหรับ developers
-print(repr(b1))     # Book(title='Python Programming', ...)
-
-# len
-print(f"ความยาวชื่อ: {len(b1)}")  # 18
-
-# เปรียบเทียบ
-print(f"b1 == b3: {b1 == b3}")  # True (isbn เหมือนกัน)
-print(f"b1 == b2: {b1 == b2}")  # False
-
-# เรียงลำดับ
-books = [b2, b1, b3]
-sorted_books = sorted(books)
-for book in sorted_books:
-    print(f"  {book.price:,.2f}: {book.title}")
-
-# ใช้ใน set (ต้องมี __hash__)
-book_set = {b1, b2, b3}  # b1 และ b3 ซ้ำกัน
-print(f"Unique books: {len(book_set)}")  # 2
+try:
+    p.age = -5
+except ValueError as e:
+    print(f"Error: {e}")
 ```
 
-## 8. Dunder Methods เพิ่มเติม
+---
+
+## 4. Magic Methods (Dunder Methods)
+
+### 4.1 \_\_str\_\_ และ \_\_repr\_\_
 
 ```python
-class Vector:
-    """Vector คณิตศาสตร์"""
-    
-    def __init__(self, x: float, y: float, z: float = 0):
+class Point:
+    def __init__(self, x: float, y: float):
         self.x = x
         self.y = y
-        self.z = z
     
     def __str__(self) -> str:
-        return f"Vector({self.x}, {self.y}, {self.z})"
+        """Human-readable - ใช้โดย print() และ str()"""
+        return f"({self.x}, {self.y})"
     
     def __repr__(self) -> str:
-        return f"Vector({self.x!r}, {self.y!r}, {self.z!r})"
+        """Developer-readable - ใช้โดย repr() และ debug"""
+        return f"Point(x={self.x}, y={self.y})"
     
-    # Arithmetic
+    def __format__(self, spec: str) -> str:
+        """ใช้โดย f-string และ format()"""
+        if spec == "polar":
+            import math
+            r = math.sqrt(self.x**2 + self.y**2)
+            theta = math.degrees(math.atan2(self.y, self.x))
+            return f"({r:.2f}∠{theta:.1f}°)"
+        return self.__str__()
+
+p = Point(3, 4)
+print(str(p))          # (3, 4)
+print(repr(p))         # Point(x=3, y=4)
+print(p)               # (3, 4)
+print(f"Point: {p}")           # Point: (3, 4)
+print(f"Polar: {p:polar}")     # Polar: (5.00∠53.1°)
+
+# List of Points ใช้ repr
+points = [Point(1, 2), Point(3, 4)]
+print(points)  # [Point(x=1, y=2), Point(x=3, y=4)]  ← ใช้ repr
+```
+
+### 4.2 Arithmetic Magic Methods
+
+```python
+import math
+
+class Vector:
+    """2D Vector"""
+    
+    def __init__(self, x: float, y: float):
+        self.x = float(x)
+        self.y = float(y)
+    
     def __add__(self, other: "Vector") -> "Vector":
-        return Vector(self.x + other.x, self.y + other.y, self.z + other.z)
+        """v1 + v2"""
+        if isinstance(other, Vector):
+            return Vector(self.x + other.x, self.y + other.y)
+        return NotImplemented
     
     def __sub__(self, other: "Vector") -> "Vector":
-        return Vector(self.x - other.x, self.y - other.y, self.z - other.z)
+        """v1 - v2"""
+        if isinstance(other, Vector):
+            return Vector(self.x - other.x, self.y - other.y)
+        return NotImplemented
     
     def __mul__(self, scalar: float) -> "Vector":
-        return Vector(self.x * scalar, self.y * scalar, self.z * scalar)
+        """v * scalar"""
+        if isinstance(scalar, (int, float)):
+            return Vector(self.x * scalar, self.y * scalar)
+        return NotImplemented
     
     def __rmul__(self, scalar: float) -> "Vector":
-        return self.__mul__(scalar)  # 3 * v = v * 3
+        """scalar * v"""
+        return self.__mul__(scalar)
+    
+    def __truediv__(self, scalar: float) -> "Vector":
+        """v / scalar"""
+        if scalar == 0:
+            raise ZeroDivisionError("หารด้วยศูนย์ไม่ได้")
+        return Vector(self.x / scalar, self.y / scalar)
     
     def __neg__(self) -> "Vector":
-        return Vector(-self.x, -self.y, -self.z)
+        """-v"""
+        return Vector(-self.x, -self.y)
     
     def __abs__(self) -> float:
-        """magnitude ของ vector"""
-        return (self.x**2 + self.y**2 + self.z**2) ** 0.5
+        """abs(v) - magnitude"""
+        return math.sqrt(self.x**2 + self.y**2)
     
-    def __eq__(self, other) -> bool:
-        if not isinstance(other, Vector):
-            return False
-        return (self.x == other.x and self.y == other.y and self.z == other.z)
+    def __eq__(self, other: object) -> bool:
+        """v1 == v2"""
+        if isinstance(other, Vector):
+            return math.isclose(self.x, other.x) and math.isclose(self.y, other.y)
+        return NotImplemented
     
     def __bool__(self) -> bool:
-        """Vector เป็น False ถ้าเป็น zero vector"""
-        return bool(self.x or self.y or self.z)
+        """bool(v) - False ถ้า zero vector"""
+        return abs(self) != 0
     
     def dot(self, other: "Vector") -> float:
         """Dot product"""
-        return self.x*other.x + self.y*other.y + self.z*other.z
+        return self.x * other.x + self.y * other.y
     
     def normalize(self) -> "Vector":
         """Unit vector"""
         mag = abs(self)
         if mag == 0:
-            raise ValueError("Zero vector ไม่มี unit vector")
-        return Vector(self.x/mag, self.y/mag, self.z/mag)
+            raise ValueError("Zero vector ไม่สามารถ normalize ได้")
+        return self / mag
+    
+    def __str__(self) -> str:
+        return f"({self.x:.2f}, {self.y:.2f})"
+    
+    def __repr__(self) -> str:
+        return f"Vector({self.x}, {self.y})"
 
-v1 = Vector(1, 2, 3)
-v2 = Vector(4, 5, 6)
+# ทดสอบ
+v1 = Vector(3, 4)
+v2 = Vector(1, 2)
 
 print(f"v1 = {v1}")
 print(f"v2 = {v2}")
 print(f"v1 + v2 = {v1 + v2}")
 print(f"v1 - v2 = {v1 - v2}")
-print(f"v1 * 3 = {v1 * 3}")
+print(f"v1 * 2 = {v1 * 2}")
 print(f"3 * v1 = {3 * v1}")
+print(f"v1 / 2 = {v1 / 2}")
 print(f"-v1 = {-v1}")
-print(f"|v1| = {abs(v1):.4f}")
-print(f"v1 · v2 = {v1.dot(v2)}")
-print(f"unit v1 = {v1.normalize()}")
-print(f"v1 == v1: {v1 == Vector(1, 2, 3)}")
+print(f"|v1| = {abs(v1):.2f}")
+print(f"v1 · v2 = {v1.dot(v2):.2f}")
+print(f"v1 normalize = {v1.normalize()}")
+print(f"v1 == Vector(3, 4): {v1 == Vector(3, 4)}")
 print(f"bool(v1): {bool(v1)}")
-print(f"bool(Vector(0,0,0)): {bool(Vector(0,0,0))}")
+print(f"bool(Vector(0,0)): {bool(Vector(0, 0))}")
 ```
 
-## 9. ตัวอย่างโปรเจกต์: ระบบจัดการร้านค้า
+### 4.3 Comparison Magic Methods
+
+```python
+from functools import total_ordering
+
+@total_ordering  # ถ้ามี __eq__ และ 1 comparison method - generate ที่เหลือ
+class Student:
+    def __init__(self, name: str, gpa: float):
+        self.name = name
+        self.gpa = gpa
+    
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Student):
+            return self.gpa == other.gpa
+        return NotImplemented
+    
+    def __lt__(self, other: "Student") -> bool:
+        if isinstance(other, Student):
+            return self.gpa < other.gpa
+        return NotImplemented
+    
+    # @total_ordering จะ generate __le__, __gt__, __ge__
+    
+    def __str__(self) -> str:
+        return f"{self.name} (GPA: {self.gpa:.2f})"
+    
+    def __repr__(self) -> str:
+        return f"Student({self.name!r}, {self.gpa})"
+    
+    def __hash__(self) -> int:
+        """ต้องมีถ้ามี __eq__"""
+        return hash((self.name, self.gpa))
+
+students = [
+    Student("Charlie", 3.5),
+    Student("Alice", 3.8),
+    Student("Bob", 3.2),
+    Student("Diana", 3.9),
+]
+
+print("Sorted:")
+for s in sorted(students):
+    print(f"  {s}")
+
+print(f"\nBest: {max(students)}")
+print(f"Worst: {min(students)}")
+
+alice = Student("Alice", 3.8)
+charlie = Student("Charlie", 3.5)
+
+print(f"\nalice > charlie: {alice > charlie}")
+print(f"alice <= alice: {alice <= alice}")
+print(f"charlie < alice: {charlie < alice}")
+
+# Set (ต้องใช้ __hash__)
+unique = {Student("A", 3.5), Student("B", 3.5), Student("A", 3.5)}
+print(f"Unique students: {len(unique)}")
+```
+
+### 4.4 Container Magic Methods
+
+```python
+class Stack:
+    """Stack data structure"""
+    
+    def __init__(self, *items):
+        self._data = list(items)
+    
+    def push(self, item) -> None:
+        self._data.append(item)
+    
+    def pop(self):
+        if not self._data:
+            raise IndexError("Stack ว่าง")
+        return self._data.pop()
+    
+    def peek(self):
+        if not self._data:
+            raise IndexError("Stack ว่าง")
+        return self._data[-1]
+    
+    # Container methods
+    def __len__(self) -> int:
+        """len(stack)"""
+        return len(self._data)
+    
+    def __getitem__(self, index):
+        """stack[i]"""
+        return self._data[index]
+    
+    def __setitem__(self, index, value) -> None:
+        """stack[i] = value"""
+        self._data[index] = value
+    
+    def __delitem__(self, index) -> None:
+        """del stack[i]"""
+        del self._data[index]
+    
+    def __contains__(self, item) -> bool:
+        """item in stack"""
+        return item in self._data
+    
+    def __iter__(self):
+        """for item in stack"""
+        return iter(self._data)
+    
+    def __reversed__(self):
+        """reversed(stack)"""
+        return reversed(self._data)
+    
+    def __bool__(self) -> bool:
+        """bool(stack) - False ถ้าว่าง"""
+        return bool(self._data)
+    
+    def __str__(self) -> str:
+        return f"Stack({self._data})"
+    
+    def __repr__(self) -> str:
+        return f"Stack(*{self._data!r})"
+
+# ทดสอบ
+s = Stack(1, 2, 3)
+s.push(4)
+s.push(5)
+
+print(f"Stack: {s}")
+print(f"len: {len(s)}")
+print(f"peek: {s.peek()}")
+print(f"s[0]: {s[0]}")
+print(f"3 in s: {3 in s}")
+print(f"9 in s: {9 in s}")
+
+print("\nIterate:")
+for item in s:
+    print(f"  {item}", end="")
+print()
+
+print("\nReversed:")
+for item in reversed(s):
+    print(f"  {item}", end="")
+print()
+
+s[0] = 99
+print(f"\nหลัง s[0]=99: {s}")
+
+popped = s.pop()
+print(f"Popped: {popped}")
+print(f"Stack: {s}")
+```
+
+### 4.5 Context Manager Methods
+
+```python
+class DatabaseConnection:
+    """Database connection ด้วย context manager"""
+    
+    def __init__(self, host: str, port: int, database: str):
+        self.host = host
+        self.port = port
+        self.database = database
+        self._connected = False
+        self._queries = []
+    
+    def __enter__(self) -> "DatabaseConnection":
+        """เปิด connection"""
+        print(f"เชื่อมต่อ {self.host}:{self.port}/{self.database}")
+        self._connected = True
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """ปิด connection"""
+        if exc_type:
+            print(f"Rollback เนื่องจาก {exc_type.__name__}: {exc_val}")
+        else:
+            print(f"Commit {len(self._queries)} queries")
+        
+        self._connected = False
+        print("ปิด connection แล้ว")
+        return False  # propagate exceptions
+    
+    def execute(self, query: str) -> dict:
+        """ส่ง query"""
+        if not self._connected:
+            raise RuntimeError("ยังไม่ได้เชื่อมต่อ")
+        
+        self._queries.append(query)
+        # จำลอง query execution
+        return {"query": query, "rows_affected": 1}
+    
+    def __repr__(self) -> str:
+        status = "connected" if self._connected else "disconnected"
+        return f"DB({self.database}@{self.host}, {status})"
+
+# ทดสอบ
+with DatabaseConnection("localhost", 5432, "myapp") as db:
+    result = db.execute("INSERT INTO users VALUES (...)")
+    result = db.execute("UPDATE products SET price = 100")
+    print(f"Queries: {len(db._queries)}")
+
+print()
+
+# ทดสอบกับ exception
+try:
+    with DatabaseConnection("localhost", 5432, "myapp") as db:
+        db.execute("SELECT * FROM users")
+        raise ValueError("ข้อมูลผิดพลาด")
+        db.execute("DELETE FROM temp")  # ไม่ถูกรัน
+except ValueError:
+    print("จัดการ exception นอก with block")
+```
+
+---
+
+## 5. Class Inheritance (เบื้องต้น)
+
+```python
+# Inheritance - class สืบทอดจาก class อื่น
+class Animal:
+    """Base class สำหรับสัตว์ทุกชนิด"""
+    
+    def __init__(self, name: str, sound: str):
+        self.name = name
+        self.sound = sound
+        self.alive = True
+    
+    def speak(self) -> str:
+        return f"{self.name}: {self.sound}!"
+    
+    def eat(self, food: str) -> str:
+        return f"{self.name} กิน {food}"
+    
+    def __str__(self) -> str:
+        return f"{type(self).__name__}({self.name!r})"
+    
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(name={self.name!r})"
+
+class Dog(Animal):
+    """Dog สืบทอดจาก Animal"""
+    
+    def __init__(self, name: str, breed: str):
+        super().__init__(name, "โฮ่ง")  # เรียก parent's __init__
+        self.breed = breed
+        self._tricks = []
+    
+    # Override method
+    def speak(self) -> str:
+        return f"{self.name} ({self.breed}): โฮ่ง โฮ่ง!"
+    
+    # เพิ่ม method ใหม่
+    def learn_trick(self, trick: str) -> None:
+        self._tricks.append(trick)
+    
+    def perform(self) -> str:
+        if self._tricks:
+            return f"{self.name} แสดง: {', '.join(self._tricks)}"
+        return f"{self.name} ไม่รู้ trick"
+
+class Cat(Animal):
+    """Cat สืบทอดจาก Animal"""
+    
+    def __init__(self, name: str, indoor: bool = True):
+        super().__init__(name, "เมี๊ยว")
+        self.indoor = indoor
+    
+    def speak(self) -> str:
+        return f"{self.name}: เมี๊ยว~"
+    
+    def purr(self) -> str:
+        return f"{self.name}: ครื้อๆๆๆ"
+
+# ทดสอบ
+dog = Dog("Max", "Golden Retriever")
+cat = Cat("Luna")
+
+print(dog.speak())
+print(cat.speak())
+print(cat.purr())
+
+dog.learn_trick("นั่ง")
+dog.learn_trick("ล้มตาย")
+print(dog.perform())
+
+print(f"\ndog กิน: {dog.eat('กระดูก')}")
+print(f"cat กิน: {cat.eat('ปลา')}")
+
+print(f"\n{dog}")
+print(f"{cat}")
+
+# isinstance และ issubclass
+print(f"\ndog is Animal: {isinstance(dog, Animal)}")  # True
+print(f"dog is Dog: {isinstance(dog, Dog)}")          # True
+print(f"dog is Cat: {isinstance(dog, Cat)}")          # False
+print(f"Dog is subclass of Animal: {issubclass(Dog, Animal)}")  # True
+
+# Polymorphism
+animals = [Dog("Rex", "Labrador"), Cat("Whiskers"), Dog("Buddy", "Poodle")]
+print("\nPolymorphism:")
+for animal in animals:
+    print(f"  {animal.speak()}")
+```
+
+---
+
+## 6. ตัวอย่างโปรแกรมจริง: Bank Account System
 
 ```python
 """
-ระบบร้านค้า แสดงหลักการ OOP ครบถ้วน
+ระบบบัญชีธนาคาร OOP
 """
-
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
+import uuid
+
+class Transaction:
+    """บันทึก transaction"""
+    
+    def __init__(self, type_: str, amount: float, description: str = ""):
+        self.id = str(uuid.uuid4())[:8]
+        self.type = type_
+        self.amount = amount
+        self.description = description
+        self.timestamp = datetime.now()
+    
+    def __str__(self) -> str:
+        sign = "+" if self.type == "credit" else "-"
+        return (f"[{self.timestamp.strftime('%Y-%m-%d %H:%M')}] "
+                f"{sign}{self.amount:,.2f} บาท "
+                f"({self.description})")
+
+class BankAccount:
+    """บัญชีธนาคาร"""
+    
+    MINIMUM_BALANCE = 100.0
+    OVERDRAFT_FEE = 50.0
+    
+    def __init__(self, owner: str, account_number: str = None, 
+                 initial_balance: float = 0.0):
+        self.owner = owner
+        self.account_number = account_number or f"ACC{uuid.uuid4().hex[:8].upper()}"
+        self._balance = 0.0
+        self._transactions: List[Transaction] = []
+        self.active = True
+        
+        if initial_balance > 0:
+            self._credit(initial_balance, "เปิดบัญชี")
+    
+    @property
+    def balance(self) -> float:
+        return self._balance
+    
+    def _credit(self, amount: float, description: str) -> Transaction:
+        """เพิ่มเงินเข้าบัญชี"""
+        t = Transaction("credit", amount, description)
+        self._balance += amount
+        self._transactions.append(t)
+        return t
+    
+    def _debit(self, amount: float, description: str) -> Transaction:
+        """ถอนเงินออกจากบัญชี"""
+        t = Transaction("debit", amount, description)
+        self._balance -= amount
+        self._transactions.append(t)
+        return t
+    
+    def deposit(self, amount: float, description: str = "ฝากเงิน") -> Transaction:
+        """ฝากเงิน"""
+        if not self.active:
+            raise RuntimeError("บัญชีถูกปิดแล้ว")
+        if amount <= 0:
+            raise ValueError("จำนวนเงินต้องมากกว่า 0")
+        return self._credit(amount, description)
+    
+    def withdraw(self, amount: float, description: str = "ถอนเงิน") -> Transaction:
+        """ถอนเงิน"""
+        if not self.active:
+            raise RuntimeError("บัญชีถูกปิดแล้ว")
+        if amount <= 0:
+            raise ValueError("จำนวนเงินต้องมากกว่า 0")
+        
+        if self._balance - amount < self.MINIMUM_BALANCE:
+            # ถอนเกิน - คิดค่าธรรมเนียม
+            if self._balance - amount < 0:
+                raise ValueError(f"ยอดเงินไม่พอ (มี {self._balance:.2f} บาท)")
+            self._debit(self.OVERDRAFT_FEE, "ค่าธรรมเนียม (ยอดต่ำกว่าขั้นต่ำ)")
+        
+        return self._debit(amount, description)
+    
+    def transfer(self, target: "BankAccount", amount: float, description: str = "โอนเงิน") -> bool:
+        """โอนเงินไปยังบัญชีอื่น"""
+        self.withdraw(amount, f"โอนไป {target.account_number}: {description}")
+        target.deposit(amount, f"รับจาก {self.account_number}: {description}")
+        return True
+    
+    def get_statement(self, last_n: int = None) -> str:
+        """แสดง statement"""
+        transactions = self._transactions
+        if last_n:
+            transactions = transactions[-last_n:]
+        
+        lines = [
+            f"{'=' * 55}",
+            f"Statement: {self.owner}",
+            f"Account: {self.account_number}",
+            f"{'=' * 55}",
+        ]
+        
+        for t in transactions:
+            lines.append(f"  {t}")
+        
+        lines.extend([
+            f"{'=' * 55}",
+            f"  ยอดคงเหลือ: {self._balance:,.2f} บาท",
+            f"{'=' * 55}",
+        ])
+        
+        return "\n".join(lines)
+    
+    def __str__(self) -> str:
+        return f"Account({self.owner}, {self.account_number}, {self._balance:,.2f}฿)"
+    
+    def __repr__(self) -> str:
+        return f"BankAccount(owner={self.owner!r}, number={self.account_number!r})"
+    
+    def __eq__(self, other) -> bool:
+        if isinstance(other, BankAccount):
+            return self.account_number == other.account_number
+        return NotImplemented
+    
+    def __lt__(self, other) -> bool:
+        if isinstance(other, BankAccount):
+            return self._balance < other._balance
+        return NotImplemented
+    
+    def __add__(self, other):
+        """รวมยอดของ 2 บัญชี - คืน float"""
+        if isinstance(other, BankAccount):
+            return self._balance + other._balance
+        return NotImplemented
+    
+    def __float__(self) -> float:
+        return self._balance
+
+# ทดสอบ
+alice_acc = BankAccount("Alice", initial_balance=10000)
+bob_acc = BankAccount("Bob", initial_balance=5000)
+
+print(alice_acc)
+print(bob_acc)
+
+# Transactions
+alice_acc.deposit(2000, "เงินเดือน")
+alice_acc.withdraw(500, "ค่าอาหาร")
+alice_acc.withdraw(1200, "ค่าเช่า")
+
+bob_acc.deposit(3000, "โบนัส")
+bob_acc.withdraw(200, "ค่าโทรศัพท์")
+
+# โอนเงิน
+alice_acc.transfer(bob_acc, 1000, "คืนเงินที่ยืม")
+
+# Statement
+print("\n" + alice_acc.get_statement(last_n=5))
+print("\n" + bob_acc.get_statement())
+
+# Magic methods
+print(f"\nยอดรวม: {alice_acc + bob_acc:,.2f} บาท")
+print(f"float(alice): {float(alice_acc):,.2f}")
+
+accounts = [alice_acc, bob_acc, BankAccount("Charlie", initial_balance=8000)]
+richest = max(accounts)
+print(f"บัญชีที่มียอดสูงสุด: {richest}")
+```
+
+---
+
+## 7. Exercises
+
+### Exercise 1: Product Catalog
+
+```python
+"""
+สร้างระบบ Product Catalog ด้วย OOP:
+1. Product class พร้อม properties
+2. Inventory class สำหรับจัดการสต็อก
+3. Magic methods: __str__, __repr__, __eq__, __lt__, __len__
+"""
+from typing import List, Optional
+from datetime import datetime
 
 class Product:
-    """สินค้า"""
-    
-    def __init__(self, product_id: str, name: str, price: float, 
-                 stock: int = 0, category: str = "general"):
-        self.product_id = product_id
+    def __init__(self, id: str, name: str, price: float, 
+                 category: str, stock: int = 0):
+        self.id = id
         self.name = name
         self._price = price
-        self._stock = stock
         self.category = category
+        self._stock = stock
+        self.created_at = datetime.now()
     
     @property
     def price(self) -> float:
@@ -630,228 +970,298 @@ class Product:
     def in_stock(self) -> bool:
         return self._stock > 0
     
-    def add_stock(self, quantity: int) -> None:
-        if quantity <= 0:
-            raise ValueError("จำนวนต้องมากกว่า 0")
-        self._stock += quantity
+    def restock(self, qty: int) -> None:
+        if qty <= 0:
+            raise ValueError("จำนวนต้องเป็นบวก")
+        self._stock += qty
     
-    def reduce_stock(self, quantity: int) -> bool:
-        if quantity <= 0:
-            raise ValueError("จำนวนต้องมากกว่า 0")
-        if quantity > self._stock:
-            return False
-        self._stock -= quantity
-        return True
+    def sell(self, qty: int = 1) -> None:
+        if qty > self._stock:
+            raise ValueError(f"สต็อกไม่พอ (มี {self._stock})")
+        self._stock -= qty
     
     def __str__(self) -> str:
-        status = "มีสินค้า" if self.in_stock else "หมด"
-        return f"{self.product_id}: {self.name} ({self._price:,.2f}฿) [{status}]"
+        stock_status = f"{self._stock} ชิ้น" if self.in_stock else "หมด"
+        return f"[{self.id}] {self.name} - {self._price:,.2f}฿ ({stock_status})"
     
     def __repr__(self) -> str:
-        return (f"Product(id={self.product_id!r}, name={self.name!r}, "
-                f"price={self._price}, stock={self._stock})")
-
-
-class CartItem:
-    """สินค้าใน cart"""
+        return f"Product(id={self.id!r}, name={self.name!r}, price={self._price})"
     
-    def __init__(self, product: Product, quantity: int):
-        self.product = product
-        self.quantity = quantity
+    def __eq__(self, other) -> bool:
+        return isinstance(other, Product) and self.id == other.id
     
-    @property
-    def subtotal(self) -> float:
-        return self.product.price * self.quantity
+    def __lt__(self, other) -> bool:
+        return isinstance(other, Product) and self._price < other._price
     
-    def __str__(self) -> str:
-        return (f"{self.product.name} x{self.quantity} "
-                f"= {self.subtotal:,.2f}฿")
+    def __hash__(self) -> int:
+        return hash(self.id)
 
-
-class ShoppingCart:
-    """ตะกร้าสินค้า"""
-    
+class Inventory:
     def __init__(self):
-        self._items: dict = {}  # {product_id: CartItem}
+        self._products = {}
     
-    def add_item(self, product: Product, quantity: int = 1) -> None:
-        """เพิ่มสินค้าลงตะกร้า"""
-        if not product.in_stock:
-            raise ValueError(f"สินค้า {product.name} หมดแล้ว")
-        if quantity > product.stock:
-            raise ValueError(f"สต็อกไม่พอ (มี {product.stock} ชิ้น)")
-        
-        if product.product_id in self._items:
-            self._items[product.product_id].quantity += quantity
-        else:
-            self._items[product.product_id] = CartItem(product, quantity)
+    def add_product(self, product: Product) -> None:
+        self._products[product.id] = product
     
-    def remove_item(self, product_id: str) -> bool:
-        """ลบสินค้าออกจากตะกร้า"""
-        if product_id in self._items:
-            del self._items[product_id]
-            return True
-        return False
+    def get_product(self, product_id: str) -> Optional[Product]:
+        return self._products.get(product_id)
     
-    def update_quantity(self, product_id: str, quantity: int) -> bool:
-        """อัพเดตจำนวน"""
-        if product_id not in self._items:
-            return False
-        if quantity <= 0:
-            return self.remove_item(product_id)
-        self._items[product_id].quantity = quantity
-        return True
+    def search(self, query: str = "", category: str = "") -> List[Product]:
+        results = list(self._products.values())
+        if query:
+            results = [p for p in results if query.lower() in p.name.lower()]
+        if category:
+            results = [p for p in results if p.category == category]
+        return sorted(results)
     
-    @property
-    def items(self) -> list:
-        return list(self._items.values())
+    def low_stock(self, threshold: int = 5) -> List[Product]:
+        return [p for p in self._products.values() if p.stock <= threshold]
     
-    @property
-    def total(self) -> float:
-        return sum(item.subtotal for item in self._items.values())
+    def __len__(self) -> int:
+        return len(self._products)
     
-    @property
-    def item_count(self) -> int:
-        return sum(item.quantity for item in self._items.values())
+    def __contains__(self, product_id: str) -> bool:
+        return product_id in self._products
     
-    def is_empty(self) -> bool:
-        return len(self._items) == 0
-    
-    def clear(self) -> None:
-        self._items.clear()
-    
-    def show(self) -> None:
-        print("\n🛒 ตะกร้าสินค้า:")
-        print("-" * 50)
-        if self.is_empty():
-            print("  ตะกร้าว่างเปล่า")
-        else:
-            for item in self.items:
-                print(f"  {item}")
-            print("-" * 50)
-            print(f"  รวม: {self.total:,.2f} บาท ({self.item_count} ชิ้น)")
+    def __iter__(self):
+        return iter(self._products.values())
 
+# ทดสอบ
+inv = Inventory()
 
-class Order:
-    """คำสั่งซื้อ"""
-    
-    _order_counter = 0
-    
-    def __init__(self, cart: ShoppingCart, customer_name: str):
-        Order._order_counter += 1
-        self.order_id = f"ORD{Order._order_counter:05d}"
-        self.customer_name = customer_name
-        self.items = cart.items.copy()
-        self.total = cart.total
-        self.timestamp = datetime.now()
-        self.status = "pending"
-    
-    @classmethod
-    def get_order_count(cls) -> int:
-        return cls._order_counter
-    
-    @staticmethod
-    def calculate_shipping(total: float) -> float:
-        """คำนวณค่าส่ง"""
-        if total >= 500:
-            return 0  # ฟรีค่าส่ง
-        return 50
-    
-    @property
-    def shipping_fee(self) -> float:
-        return self.calculate_shipping(self.total)
-    
-    @property
-    def grand_total(self) -> float:
-        return self.total + self.shipping_fee
-    
-    def confirm(self) -> None:
-        """ยืนยันคำสั่งซื้อ"""
-        for item in self.items:
-            success = item.product.reduce_stock(item.quantity)
-            if not success:
-                raise ValueError(f"สต็อก {item.product.name} ไม่พอ")
-        self.status = "confirmed"
-    
-    def show_receipt(self) -> None:
-        print(f"\n{'='*50}")
-        print(f"  ใบเสร็จ #{self.order_id}")
-        print(f"  ลูกค้า: {self.customer_name}")
-        print(f"  วันที่: {self.timestamp.strftime('%d/%m/%Y %H:%M')}")
-        print(f"{'='*50}")
-        for item in self.items:
-            print(f"  {item.product.name:25} {item.quantity:3} x {item.product.price:8,.2f} = {item.subtotal:10,.2f}")
-        print(f"{'='*50}")
-        print(f"  {'ราคาสินค้า':35} {self.total:>10,.2f}")
-        if self.shipping_fee > 0:
-            print(f"  {'ค่าจัดส่ง':35} {self.shipping_fee:>10,.2f}")
-        else:
-            print(f"  {'ค่าจัดส่ง (ฟรี เมื่อสั่งครบ 500฿)':35} {'0.00':>10}")
-        print(f"{'='*50}")
-        print(f"  {'ยอดรวมทั้งหมด':35} {self.grand_total:>10,.2f}")
-        print(f"{'='*50}")
-        print(f"  สถานะ: {self.status}")
-
-
-# ===== ทดสอบระบบ =====
-
-# สร้างสินค้า
 products = [
-    Product("P001", "Python Programming Book", 599, 20, "books"),
-    Product("P002", "USB-C Hub", 890, 15, "electronics"),
-    Product("P003", "Mechanical Keyboard", 3500, 5, "electronics"),
-    Product("P004", "Notebook (50 แผ่น)", 89, 100, "stationery"),
-    Product("P005", "Pen Set (12 ด้าม)", 149, 50, "stationery"),
+    Product("P001", "Laptop Pro", 45000, "Electronics", 10),
+    Product("P002", "Mouse Wireless", 599, "Electronics", 3),
+    Product("P003", "Mechanical Keyboard", 2499, "Electronics", 8),
+    Product("P004", "Office Chair", 8500, "Furniture", 5),
+    Product("P005", "Desk Lamp", 1299, "Furniture", 12),
 ]
 
-print("สินค้าในร้าน:")
 for p in products:
+    inv.add_product(p)
+
+print(f"สินค้าทั้งหมด: {len(inv)} รายการ")
+print()
+
+# แสดงทุกชิ้น
+print("=== สินค้าทั้งหมด (เรียงตามราคา) ===")
+for p in inv.search():
     print(f"  {p}")
 
-# สร้าง cart
-cart = ShoppingCart()
-cart.add_item(products[0], 2)   # Python Book x2
-cart.add_item(products[3], 5)   # Notebook x5
-cart.add_item(products[4], 3)   # Pen Set x3
+# ค้นหา
+print("\n=== ค้นหา 'laptop' ===")
+for p in inv.search(query="laptop"):
+    print(f"  {p}")
 
-cart.show()
+# Low stock
+print("\n=== สต็อกต่ำ (<=5) ===")
+for p in inv.low_stock(5):
+    print(f"  {p}")
 
-# สั่งซื้อ
-order = Order(cart, "สมชาย ใจดี")
-order.confirm()
-order.show_receipt()
-
-# สั่งซื้ออีกครั้ง
-cart2 = ShoppingCart()
-cart2.add_item(products[2], 1)  # Keyboard x1
-
-order2 = Order(cart2, "สมหญิง สวยงาม")
-order2.confirm()
-order2.show_receipt()
-
-print(f"\nจำนวน orders ทั้งหมด: {Order.get_order_count()}")
-print(f"\nสต็อกคงเหลือ:")
-for p in products:
-    print(f"  {p.name}: {p.stock} ชิ้น")
+# ซื้อสินค้า
+laptop = inv.get_product("P001")
+laptop.sell(3)
+print(f"\nหลังขาย 3 เครื่อง: {laptop}")
 ```
 
-## 10. สรุป Part 015
+### Exercise 2: Matrix Class
 
-ใน Part นี้คุณได้เรียนรู้:
+```python
+"""
+สร้าง Matrix class พร้อม magic methods:
+- __add__, __sub__, __mul__ (matrix multiply)
+- __getitem__, __setitem__
+- __len__, __iter__
+- __str__, __repr__
+- __eq__
+"""
+from typing import List, Union
 
-✅ **Class และ Object** - สร้าง class, instantiate objects, class attributes vs instance attributes
-✅ **`__init__`** - constructor สำหรับกำหนด initial state
-✅ **self** - reference ไปยัง instance ปัจจุบัน, method chaining
-✅ **Instance Methods** - methods ที่ทำงานกับ instance data
-✅ **Class Methods** - `@classmethod`, alternative constructors, class-level operations
-✅ **Static Methods** - `@staticmethod`, utility functions ใน namespace ของ class
-✅ **Properties** - `@property`, getter/setter, computed properties
-✅ **Encapsulation** - `_protected`, `__private`, name mangling
-✅ **`__str__` และ `__repr__`** - สำหรับ users vs developers
-✅ **Dunder Methods** - `__add__`, `__eq__`, `__len__`, `__bool__` และอื่นๆ
+class Matrix:
+    def __init__(self, data: List[List[float]]):
+        if not data or not data[0]:
+            raise ValueError("Matrix ต้องมีข้อมูล")
+        
+        rows = len(data)
+        cols = len(data[0])
+        
+        if any(len(row) != cols for row in data):
+            raise ValueError("แต่ละแถวต้องมีจำนวน column เท่ากัน")
+        
+        self._data = [[float(x) for x in row] for row in data]
+        self.rows = rows
+        self.cols = cols
+    
+    @classmethod
+    def zeros(cls, rows: int, cols: int) -> "Matrix":
+        return cls([[0] * cols for _ in range(rows)])
+    
+    @classmethod
+    def identity(cls, n: int) -> "Matrix":
+        data = [[1 if i == j else 0 for j in range(n)] for i in range(n)]
+        return cls(data)
+    
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            row, col = key
+            return self._data[row][col]
+        return self._data[key]
+    
+    def __setitem__(self, key, value):
+        if isinstance(key, tuple):
+            row, col = key
+            self._data[row][col] = float(value)
+        else:
+            self._data[key] = [float(x) for x in value]
+    
+    def __len__(self) -> int:
+        return self.rows
+    
+    def __iter__(self):
+        return iter(self._data)
+    
+    def __add__(self, other: "Matrix") -> "Matrix":
+        if self.rows != other.rows or self.cols != other.cols:
+            raise ValueError("Matrix ขนาดต้องเท่ากันเพื่อบวก")
+        return Matrix([[self[i][j] + other[i][j] 
+                        for j in range(self.cols)] 
+                       for i in range(self.rows)])
+    
+    def __sub__(self, other: "Matrix") -> "Matrix":
+        if self.rows != other.rows or self.cols != other.cols:
+            raise ValueError("Matrix ขนาดต้องเท่ากันเพื่อลบ")
+        return Matrix([[self[i][j] - other[i][j] 
+                        for j in range(self.cols)] 
+                       for i in range(self.rows)])
+    
+    def __mul__(self, other: Union["Matrix", float]) -> "Matrix":
+        if isinstance(other, (int, float)):
+            return Matrix([[self[i][j] * other 
+                            for j in range(self.cols)] 
+                           for i in range(self.rows)])
+        if isinstance(other, Matrix):
+            if self.cols != other.rows:
+                raise ValueError(f"ไม่สามารถคูณ {self.rows}x{self.cols} กับ {other.rows}x{other.cols}")
+            return Matrix([
+                [sum(self[i][k] * other[k][j] for k in range(self.cols))
+                 for j in range(other.cols)]
+                for i in range(self.rows)
+            ])
+        return NotImplemented
+    
+    def __rmul__(self, scalar: float) -> "Matrix":
+        return self.__mul__(scalar)
+    
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Matrix):
+            return NotImplemented
+        return self._data == other._data
+    
+    def transpose(self) -> "Matrix":
+        return Matrix([[self[i][j] for i in range(self.rows)] 
+                       for j in range(self.cols)])
+    
+    def __str__(self) -> str:
+        lines = []
+        for row in self._data:
+            row_str = "  ".join(f"{x:6.2f}" for x in row)
+            lines.append(f"[ {row_str} ]")
+        return "\n".join(lines)
+    
+    def __repr__(self) -> str:
+        return f"Matrix({self._data})"
+
+# ทดสอบ
+A = Matrix([[1, 2], [3, 4]])
+B = Matrix([[5, 6], [7, 8]])
+I = Matrix.identity(2)
+
+print("A:")
+print(A)
+print("\nB:")
+print(B)
+print("\nA + B:")
+print(A + B)
+print("\nA * B:")
+print(A * B)
+print("\nA * 2:")
+print(A * 2)
+print("\nA^T (transpose):")
+print(A.transpose())
+print(f"\nI = Identity:\n{I}")
+print(f"\nA == A: {A == A}")
+print(f"A == B: {A == B}")
+```
 
 ---
 
-## ➡️ ถัดไป: Part 016 - OOP Advanced (Inheritance, Polymorphism)
+## 8. สรุป Part 015
+
+### สิ่งที่เรียนรู้:
+
+✅ **class** - สร้าง class  
+✅ **\_\_init\_\_** - constructor  
+✅ **self** - reference ถึง instance ปัจจุบัน  
+✅ **Instance variables** - แต่ละ object มีเป็นของตัวเอง  
+✅ **Class variables** - ใช้ร่วมกันทุก instance  
+✅ **Instance methods** - รับ self  
+✅ **@classmethod** - รับ cls  
+✅ **@staticmethod** - ไม่รับ self/cls  
+✅ **@property** - getter/setter/deleter  
+✅ **Magic methods** - \_\_str\_\_, \_\_repr\_\_, \_\_add\_\_, \_\_len\_\_, \_\_eq\_\_  
+✅ **Inheritance** - class Child(Parent)  
+✅ **super()** - เรียก parent method  
+
+### Quick Reference:
+
+```python
+class MyClass:
+    class_var = "shared"      # class variable
+    
+    def __init__(self, x):
+        self.x = x            # instance variable
+    
+    def instance_method(self):    # รับ self
+        return self.x
+    
+    @classmethod
+    def class_method(cls):        # รับ cls
+        return cls.class_var
+    
+    @staticmethod
+    def static_method():          # ไม่รับ self/cls
+        return "static"
+    
+    @property
+    def computed(self):           # getter
+        return self.x * 2
+    
+    @computed.setter
+    def computed(self, val):      # setter
+        self.x = val / 2
+    
+    def __str__(self): return f"MyClass({self.x})"
+    def __repr__(self): return f"MyClass(x={self.x!r})"
+    def __len__(self): return self.x
+    def __add__(self, other): return MyClass(self.x + other.x)
+    def __eq__(self, other): return self.x == other.x
+    def __lt__(self, other): return self.x < other.x
+    def __contains__(self, item): return item == self.x
+    def __enter__(self): return self
+    def __exit__(self, *args): return False
+```
+
+---
+
+## ➡️ ถัดไป: Part 016 - OOP ขั้นสูง (Inheritance, ABC, MRO)
+
+ใน Part ถัดไป เราจะเรียนรู้:
+- Multiple Inheritance และ MRO
+- Abstract Base Classes (ABC)
+- Mixins
+- Dataclasses
+- Protocols (Duck Typing)
+
+---
 
 *Part 015/100+ | Python Course - Beginner to World-Class*
