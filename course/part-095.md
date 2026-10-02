@@ -1,625 +1,706 @@
-# Part 095 - FastAPI Authentication
-
-## เป้าหมายการเรียนรู้
-
-- ใช้ OAuth2 with Password flow
-- สร้างและ validate JWT tokens
-- ใช้ Dependencies (Depends) สำหรับ auth
-- Security utilities
-- Middleware
-- Rate limiting
+# Part 095: FastAPI WebSockets
+## หลักสูตร Python, Django, Flask, FastAPI
 
 ---
 
-## 1. Authentication แบบต่างๆ ใน FastAPI
-
-```
-1. OAuth2 Password Flow - username/password -> JWT token
-2. OAuth2 Bearer Token - API key หรือ token ใน header
-3. HTTP Basic Auth - username:password encoded ใน header
-4. API Key - ใน header, query, cookie
-```
+## 🎯 เป้าหมายของ Part นี้
+- สร้าง WebSocket endpoint ใน FastAPI
+- จัดการ WebSocket connections
+- สร้าง Connection Manager สำหรับ broadcasting
+- สร้าง real-time chat application
+- จัดการ authentication ใน WebSocket
 
 ---
 
-## 2. OAuth2 + JWT Setup
+## 1. WebSocket คืออะไร?
 
-```bash
-pip install python-jose[cryptography] passlib[bcrypt]
+WebSocket เป็น protocol ที่ช่วยให้ browser และ server สื่อสารแบบ two-way (bi-directional) ได้แบบ real-time
+
 ```
+HTTP (request-response):
+Client → Request → Server → Response → Client (จบ)
+
+WebSocket (persistent connection):
+Client ←→ Server (คุยไปมาได้ตลอด)
+```
+
+ใช้สำหรับ:
+- Chat applications
+- Real-time notifications
+- Live updates (stock prices, sports scores)
+- Collaborative editing
+- Online games
+
+---
+
+## 2. WebSocket พื้นฐาน
 
 ```python
-# app/auth/security.py - JWT utilities
+# websocket_basic.py
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Any
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from fastapi import HTTPException, status
-from app.config import get_settings
-
-settings = get_settings()
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-def hash_password(password: str) -> str:
-    """Hash password ด้วย bcrypt"""
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """ตรวจสอบ password"""
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def create_access_token(
-    subject: Any,
-    expires_delta: Optional[timedelta] = None,
-    additional_claims: dict = None
-) -> str:
-    """สร้าง JWT access token"""
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(
-            minutes=settings.access_token_expire_minutes
-        )
-    
-    payload = {
-        "sub": str(subject),    # subject (user ID)
-        "exp": expire,          # expiration
-        "iat": datetime.now(timezone.utc),  # issued at
-        "type": "access"
-    }
-    
-    if additional_claims:
-        payload.update(additional_claims)
-    
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
-
-
-def create_refresh_token(subject: Any) -> str:
-    """สร้าง JWT refresh token"""
-    expire = datetime.now(timezone.utc) + timedelta(
-        days=settings.refresh_token_expire_days
-    )
-    
-    payload = {
-        "sub": str(subject),
-        "exp": expire,
-        "iat": datetime.now(timezone.utc),
-        "type": "refresh"
-    }
-    
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
-
-
-def decode_token(token: str) -> dict:
-    """Decode และ validate JWT token"""
-    try:
-        payload = jwt.decode(
-            token,
-            settings.secret_key,
-            algorithms=[settings.algorithm]
-        )
-        return payload
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token ไม่ถูกต้องหรือหมดอายุ",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-```
-
----
-
-## 3. Auth Schemas
-
-```python
-# app/schemas/auth.py
-
-from pydantic import BaseModel
-from typing import Optional
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int  # วินาที
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class TokenData(BaseModel):
-    """ข้อมูลที่ decode จาก token"""
-    user_id: Optional[int] = None
-    username: Optional[str] = None
-    role: Optional[str] = None
-    scopes: list[str] = []
-```
-
----
-
-## 4. Auth Router
-
-```python
-# app/routers/auth.py
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import timedelta
-from app.database import get_db
-from app.repositories.user import UserRepository
-from app.auth.security import (
-    create_access_token, create_refresh_token,
-    decode_token, verify_password
-)
-from app.schemas.auth import TokenResponse, RefreshRequest
-from app.config import get_settings
-
-router = APIRouter(prefix="/auth", tags=["authentication"])
-settings = get_settings()
-
-
-@router.post("/login", response_model=TokenResponse)
-async def login(
-    # OAuth2PasswordRequestForm รับ username + password จาก form data
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
-):
-    """Login ด้วย username/password"""
-    repo = UserRepository(db)
-    
-    # ค้นหา user (username หรือ email)
-    user = await repo.get_by_username(form_data.username)
-    if not user:
-        user = await repo.get_by_email(form_data.username)
-    
-    # ตรวจสอบ credentials
-    if not user or not verify_password(form_data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Username หรือ Password ไม่ถูกต้อง",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="บัญชีถูกระงับ"
-        )
-    
-    # สร้าง tokens
-    access_token = create_access_token(
-        subject=user.id,
-        additional_claims={
-            "username": user.username,
-            "role": "admin" if user.is_admin else "user"
-        }
-    )
-    refresh_token = create_refresh_token(subject=user.id)
-    
-    # อัปเดต last_login
-    await repo.update_last_login(user.id)
-    
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=settings.access_token_expire_minutes * 60
-    )
-
-
-@router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(
-    request: RefreshRequest,
-    db: AsyncSession = Depends(get_db)
-):
-    """สร้าง access token ใหม่ด้วย refresh token"""
-    try:
-        payload = decode_token(request.refresh_token)
-        
-        # ตรวจสอบว่าเป็น refresh token
-        if payload.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="ต้องการ refresh token")
-        
-        user_id = int(payload.get("sub"))
-        
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token ไม่ถูกต้อง"
-        )
-    
-    # ตรวจสอบว่า user ยังอยู่
-    repo = UserRepository(db)
-    user = await repo.get(user_id)
-    
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="ผู้ใช้ไม่พบหรือถูกระงับ")
-    
-    # สร้าง tokens ใหม่
-    new_access_token = create_access_token(
-        subject=user.id,
-        additional_claims={"username": user.username, "role": "admin" if user.is_admin else "user"}
-    )
-    new_refresh_token = create_refresh_token(subject=user.id)
-    
-    return TokenResponse(
-        access_token=new_access_token,
-        refresh_token=new_refresh_token,
-        expires_in=settings.access_token_expire_minutes * 60
-    )
-```
-
----
-
-## 5. Dependencies
-
-```python
-# app/dependencies/auth.py - Auth dependencies
-
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db
-from app.repositories.user import UserRepository
-from app.auth.security import decode_token
-from app.models.user import User
-
-# OAuth2 scheme - ดึง token จาก "Authorization: Bearer <token>"
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-
-
-async def get_token_payload(token: str = Depends(oauth2_scheme)) -> dict:
-    """Decode token และส่งคืน payload"""
-    return decode_token(token)
-
-
-async def get_current_user(
-    payload: dict = Depends(get_token_payload),
-    db: AsyncSession = Depends(get_db)
-) -> User:
-    """ดึง user ปัจจุบันจาก token"""
-    user_id = payload.get("sub")
-    
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token ไม่ถูกต้อง"
-        )
-    
-    repo = UserRepository(db)
-    user = await repo.get(int(user_id))
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="ไม่พบผู้ใช้"
-        )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="บัญชีถูกระงับ"
-        )
-    
-    return user
-
-
-async def get_current_active_user(
-    current_user: User = Depends(get_current_user)
-) -> User:
-    """ตรวจสอบว่า user active"""
-    # (already checked in get_current_user)
-    return current_user
-
-
-async def get_admin_user(
-    current_user: User = Depends(get_current_user)
-) -> User:
-    """ต้องเป็น admin user"""
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="ต้องการสิทธิ์ admin"
-        )
-    return current_user
-
-
-class RequireScopes:
-    """Dependency ที่ตรวจสอบ scopes"""
-    
-    def __init__(self, required_scopes: list[str]):
-        self.required_scopes = required_scopes
-    
-    async def __call__(
-        self,
-        payload: dict = Depends(get_token_payload),
-        db: AsyncSession = Depends(get_db)
-    ) -> User:
-        token_scopes = payload.get("scopes", [])
-        
-        for scope in self.required_scopes:
-            if scope not in token_scopes:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"ต้องการ scope: {scope}"
-                )
-        
-        user_id = int(payload["sub"])
-        repo = UserRepository(db)
-        return await repo.get_or_404(user_id)
-
-
-# ─────────────────────────────────────────
-# ใช้งาน dependencies ใน routes
-# ─────────────────────────────────────────
-
-from fastapi import APIRouter
-
-router = APIRouter()
-
-
-@router.get("/me")
-async def get_me(current_user: User = Depends(get_current_user)):
-    """ดูข้อมูลตัวเอง - ต้อง login"""
-    return {
-        "id": current_user.id,
-        "username": current_user.username,
-        "email": current_user.email,
-        "is_admin": current_user.is_admin
-    }
-
-
-@router.get("/admin/dashboard")
-async def admin_dashboard(admin: User = Depends(get_admin_user)):
-    """Admin only endpoint"""
-    return {"message": f"Welcome admin {admin.username}"}
-
-
-@router.get("/posts/create")
-async def create_post_page(
-    user: User = Depends(RequireScopes(["posts:write"]))
-):
-    """ต้องมี scope posts:write"""
-    return {"message": "Create post form"}
-```
-
----
-
-## 6. Optional Authentication
-
-```python
-# app/dependencies/optional_auth.py
-
-from fastapi import Depends
-from fastapi.security import OAuth2PasswordBearer
-from typing import Optional
-from app.models.user import User
-
-# auto_error=False ทำให้ไม่ raise error ถ้าไม่มี token
-oauth2_scheme_optional = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login",
-    auto_error=False
-)
-
-
-async def get_optional_user(
-    token: Optional[str] = Depends(oauth2_scheme_optional),
-    db: AsyncSession = Depends(get_db)
-) -> Optional[User]:
-    """ดึง current user ถ้ามี token, หรือ None ถ้าไม่มี"""
-    if not token:
-        return None
-    
-    try:
-        payload = decode_token(token)
-        user_id = int(payload.get("sub", 0))
-        repo = UserRepository(db)
-        user = await repo.get(user_id)
-        return user if user and user.is_active else None
-    except Exception:
-        return None
-
-
-# ใช้งาน
-@router.get("/posts")
-async def list_posts(
-    current_user: Optional[User] = Depends(get_optional_user)
-):
-    """แสดงโพสต์ - login จะเห็นโพสต์ส่วนตัวด้วย"""
-    if current_user:
-        # แสดงทั้ง public และ private posts
-        return {"message": f"Welcome {current_user.username}!", "show_private": True}
-    else:
-        # แสดงแค่ public posts
-        return {"message": "Guest user", "show_private": False}
-```
-
----
-
-## 7. Middleware
-
-```python
-# app/middleware/auth.py - Auth middleware
-
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp
-import time
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware สำหรับ log ทุก request"""
-    
-    async def dispatch(self, request: Request, call_next):
-        start_time = time.time()
-        
-        # Log request
-        logger.info(f"→ {request.method} {request.url.path}")
-        
-        # Process request
-        response = await call_next(request)
-        
-        # Log response
-        duration = time.time() - start_time
-        logger.info(
-            f"← {request.method} {request.url.path} "
-            f"[{response.status_code}] {duration:.3f}s"
-        )
-        
-        # เพิ่ม response time header
-        response.headers["X-Response-Time"] = f"{duration:.3f}s"
-        
-        return response
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """เพิ่ม security headers"""
-    
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        
-        # Security headers
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        
-        return response
-
-
-# ลงทะเบียน middleware ใน main.py
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 app = FastAPI()
 
-app.add_middleware(RequestLoggingMiddleware)
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint พื้นฐาน
+    URL: ws://localhost:8000/ws
+    """
+    
+    # รับ connection จาก client
+    await websocket.accept()
+    
+    try:
+        while True:
+            # รอรับ message จาก client
+            data = await websocket.receive_text()
+            
+            # ส่ง message กลับ
+            await websocket.send_text(f"คุณส่งมาว่า: {data}")
+    
+    except WebSocketDisconnect:
+        # Client ตัด connection
+        print("Client disconnected")
+
+
+@app.websocket("/ws/json")
+async def websocket_json(websocket: WebSocket):
+    """WebSocket ที่รับส่ง JSON"""
+    await websocket.accept()
+    
+    try:
+        while True:
+            # รับ JSON
+            data = await websocket.receive_json()
+            
+            # ประมวลผล
+            response = {
+                "status": "received",
+                "echo": data,
+                "message_count": 1
+            }
+            
+            # ส่ง JSON กลับ
+            await websocket.send_json(response)
+    
+    except WebSocketDisconnect:
+        print("Client disconnected")
+
+
+@app.websocket("/ws/bytes")
+async def websocket_bytes(websocket: WebSocket):
+    """WebSocket ที่รับส่ง bytes (สำหรับไฟล์)"""
+    await websocket.accept()
+    
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            await websocket.send_bytes(data)  # echo
+    
+    except WebSocketDisconnect:
+        pass
+```
+
+### HTML Client สำหรับทดสอบ
+```html
+<!-- test_client.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Test</h1>
+    <input id="message" type="text" placeholder="พิมพ์ข้อความ">
+    <button onclick="sendMessage()">ส่ง</button>
+    <div id="output"></div>
+    
+    <script>
+        const ws = new WebSocket("ws://localhost:8000/ws");
+        
+        ws.onopen = () => {
+            console.log("Connected!");
+            appendMessage("✅ เชื่อมต่อสำเร็จ");
+        };
+        
+        ws.onmessage = (event) => {
+            appendMessage("Server: " + event.data);
+        };
+        
+        ws.onclose = () => {
+            appendMessage("❌ ตัดการเชื่อมต่อ");
+        };
+        
+        function sendMessage() {
+            const input = document.getElementById("message");
+            ws.send(input.value);
+            appendMessage("You: " + input.value);
+            input.value = "";
+        }
+        
+        function appendMessage(msg) {
+            const div = document.getElementById("output");
+            div.innerHTML += `<p>${msg}</p>`;
+        }
+    </script>
+</body>
+</html>
 ```
 
 ---
 
-## 8. Rate Limiting
-
-```bash
-pip install slowapi
-```
+## 3. Connection Manager
 
 ```python
-# app/middleware/rate_limit.py - Rate limiting
+# connection_manager.py
 
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from fastapi import FastAPI, Request, Depends
-from app.dependencies.auth import get_current_user
-
-# Limiter instance
-limiter = Limiter(key_func=get_remote_address)
+from fastapi import WebSocket
+from typing import List, Dict
+import json
 
 
-def setup_rate_limiting(app: FastAPI):
-    """ตั้งค่า rate limiting สำหรับ app"""
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+class ConnectionManager:
+    """จัดการ WebSocket connections ทั้งหมด"""
+    
+    def __init__(self):
+        # รายการ connections ที่ active
+        self.active_connections: List[WebSocket] = []
+        # Map user_id → websocket
+        self.user_connections: Dict[int, WebSocket] = {}
+        # Map room → list of websockets
+        self.room_connections: Dict[str, List[WebSocket]] = {}
+    
+    async def connect(self, websocket: WebSocket, user_id: int = None, room: str = None):
+        """รับ connection ใหม่"""
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        
+        if user_id:
+            self.user_connections[user_id] = websocket
+        
+        if room:
+            if room not in self.room_connections:
+                self.room_connections[room] = []
+            self.room_connections[room].append(websocket)
+    
+    def disconnect(self, websocket: WebSocket, user_id: int = None, room: str = None):
+        """ลบ connection"""
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        
+        if user_id and user_id in self.user_connections:
+            del self.user_connections[user_id]
+        
+        if room and room in self.room_connections:
+            if websocket in self.room_connections[room]:
+                self.room_connections[room].remove(websocket)
+    
+    async def send_personal(self, message: str, websocket: WebSocket):
+        """ส่ง message ไปยัง connection เดียว"""
+        await websocket.send_text(message)
+    
+    async def send_to_user(self, message: str, user_id: int):
+        """ส่ง message ไปยัง user เฉพาะ"""
+        ws = self.user_connections.get(user_id)
+        if ws:
+            await ws.send_text(message)
+    
+    async def broadcast(self, message: str):
+        """ส่ง message ไปยังทุก connection"""
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                disconnected.append(connection)
+        
+        # ลบ connections ที่ตัดไปแล้ว
+        for conn in disconnected:
+            self.active_connections.remove(conn)
+    
+    async def broadcast_to_room(self, message: str, room: str):
+        """ส่ง message ไปยัง room เฉพาะ"""
+        if room not in self.room_connections:
+            return
+        
+        disconnected = []
+        for connection in self.room_connections[room]:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                disconnected.append(connection)
+        
+        for conn in disconnected:
+            self.room_connections[room].remove(conn)
+    
+    async def broadcast_json(self, data: dict):
+        """ส่ง JSON ไปยังทุก connection"""
+        message = json.dumps(data, ensure_ascii=False)
+        await self.broadcast(message)
+    
+    @property
+    def connection_count(self) -> int:
+        return len(self.active_connections)
+    
+    @property
+    def online_users(self) -> List[int]:
+        return list(self.user_connections.keys())
 
 
-# ใช้งาน decorator บน routes
-from fastapi import APIRouter
-
-router = APIRouter()
-
-
-@router.post("/auth/login")
-@limiter.limit("5/minute")  # สูงสุด 5 ครั้งต่อนาที
-async def login(request: Request):
-    pass
-
-
-@router.post("/auth/register")
-@limiter.limit("3/hour")  # สูงสุด 3 ครั้งต่อชั่วโมง
-async def register(request: Request):
-    pass
-
-
-@router.get("/search")
-@limiter.limit("30/minute")
-async def search(request: Request):
-    pass
-
-
-# Custom rate limit key (ใช้ user ID แทน IP)
-def get_user_id_or_ip(request: Request) -> str:
-    """ใช้ user ID เป็น rate limit key ถ้า login แล้ว"""
-    user = getattr(request.state, "user", None)
-    if user:
-        return f"user:{user.id}"
-    return get_remote_address(request)
-
-
-user_limiter = Limiter(key_func=get_user_id_or_ip)
+# Global instance
+manager = ConnectionManager()
 ```
 
 ---
 
-## Exercises
+## 4. Chat Application
 
-### Exercise 1: Token Blacklisting
-สร้าง token blacklist ด้วย Redis:
-- เมื่อ logout ให้ add token ใน blacklist
-- ตรวจสอบ blacklist ก่อน process request
-- TTL ตาม token expiry
+```python
+# chat_app.py
 
-### Exercise 2: Role-Based Access Control
-สร้าง RBAC system:
-- Roles: admin, editor, viewer
-- Permissions: create, read, update, delete
-- Middleware ตรวจสอบ role
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
+from fastapi.responses import HTMLResponse
+from typing import Optional
+from datetime import datetime, timezone
+import json
 
-### Exercise 3: API Key Authentication
-สร้าง API key authentication:
-- Generate API keys
-- Validate ใน header: `X-API-Key`
-- Rate limit ตาม API key
+from connection_manager import manager
+
+app = FastAPI()
+
+
+# ---- REST Endpoints ----
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page():
+    """หน้า Chat"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Chat App</title>
+        <style>
+            body { font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px; }
+            #messages { height: 400px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+            #input-area { display: flex; gap: 10px; }
+            input { flex: 1; padding: 8px; }
+            button { padding: 8px 16px; background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
+            .my-message { text-align: right; color: #007bff; }
+            .other-message { text-align: left; color: #333; }
+            .system-message { text-align: center; color: #999; font-style: italic; }
+        </style>
+    </head>
+    <body>
+        <h1>💬 Chat Room</h1>
+        <div id="messages"></div>
+        <div id="input-area">
+            <input id="username" placeholder="ชื่อของคุณ" value="User1">
+            <input id="message" placeholder="พิมพ์ข้อความ..." onkeypress="handleEnter(event)">
+            <button onclick="sendMessage()">ส่ง</button>
+        </div>
+        
+        <script>
+            let ws;
+            let username = "";
+            
+            function connect() {
+                username = document.getElementById("username").value;
+                const room = "general";
+                ws = new WebSocket(`ws://localhost:8000/ws/chat/${room}?username=${username}`);
+                
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    displayMessage(data);
+                };
+                
+                ws.onclose = () => {
+                    displayMessage({type: "system", content: "Disconnected"});
+                };
+            }
+            
+            function sendMessage() {
+                const input = document.getElementById("message");
+                if (input.value && ws) {
+                    ws.send(JSON.stringify({
+                        type: "message",
+                        content: input.value
+                    }));
+                    input.value = "";
+                }
+            }
+            
+            function handleEnter(event) {
+                if (event.key === "Enter") sendMessage();
+            }
+            
+            function displayMessage(data) {
+                const div = document.getElementById("messages");
+                const p = document.createElement("p");
+                
+                if (data.type === "system") {
+                    p.className = "system-message";
+                    p.textContent = data.content;
+                } else if (data.username === username) {
+                    p.className = "my-message";
+                    p.textContent = `${data.content} :คุณ`;
+                } else {
+                    p.className = "other-message";
+                    p.textContent = `${data.username}: ${data.content}`;
+                }
+                
+                div.appendChild(p);
+                div.scrollTop = div.scrollHeight;
+            }
+            
+            // Auto-connect
+            window.onload = connect;
+        </script>
+    </body>
+    </html>
+    """
+
+
+# ---- WebSocket Endpoint ----
+
+@app.websocket("/ws/chat/{room}")
+async def chat_websocket(
+    websocket: WebSocket,
+    room: str,
+    username: str = Query(...)  # รับ username จาก query parameter
+):
+    """WebSocket endpoint สำหรับ chat"""
+    
+    # เชื่อมต่อ
+    await manager.connect(websocket, room=room)
+    
+    # แจ้งว่ามีคนเข้ามา
+    join_message = json.dumps({
+        "type": "system",
+        "content": f"⬆️ {username} เข้ามาใน {room}",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }, ensure_ascii=False)
+    await manager.broadcast_to_room(join_message, room)
+    
+    try:
+        while True:
+            # รับ message
+            data = await websocket.receive_text()
+            
+            try:
+                message_data = json.loads(data)
+            except json.JSONDecodeError:
+                message_data = {"type": "message", "content": data}
+            
+            # สร้าง response
+            response = json.dumps({
+                "type": "message",
+                "username": username,
+                "content": message_data.get("content", ""),
+                "room": room,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }, ensure_ascii=False)
+            
+            # ส่งไปยังทุกคนใน room
+            await manager.broadcast_to_room(response, room)
+    
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, room=room)
+        
+        # แจ้งว่ามีคนออกไป
+        leave_message = json.dumps({
+            "type": "system",
+            "content": f"⬇️ {username} ออกจาก {room}",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }, ensure_ascii=False)
+        await manager.broadcast_to_room(leave_message, room)
+
+
+# ---- Status Endpoint ----
+
+@app.get("/ws/status")
+async def websocket_status():
+    """ดูสถานะ WebSocket connections"""
+    return {
+        "total_connections": manager.connection_count,
+        "online_users": manager.online_users,
+        "rooms": {
+            room: len(conns)
+            for room, conns in manager.room_connections.items()
+        }
+    }
+```
 
 ---
 
-## สรุป
+## 5. Real-time Notifications
 
-สิ่งที่เรียนรู้:
-- **JWT tokens** - สร้างและ validate
-- **OAuth2** with Password flow
-- **Dependencies** - get_current_user, get_admin_user
-- **Optional auth** สำหรับ public/private endpoints
-- **Middleware** logging, security headers
-- **Rate limiting** ป้องกัน abuse
+```python
+# notifications.py
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from connection_manager import manager
+import json
+import asyncio
+from datetime import datetime, timezone
+
+app = FastAPI()
+
+
+@app.websocket("/ws/notifications/{user_id}")
+async def notification_websocket(
+    websocket: WebSocket,
+    user_id: int
+):
+    """WebSocket สำหรับ real-time notifications"""
+    await manager.connect(websocket, user_id=user_id)
+    
+    # ส่ง notification ต้อนรับ
+    await websocket.send_json({
+        "type": "connected",
+        "message": "เชื่อมต่อสำเร็จ",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+    
+    try:
+        while True:
+            # รอรับ acknowledgment จาก client
+            # หรือ keepalive messages
+            data = await websocket.receive_text()
+            
+            if data == "ping":
+                await websocket.send_text("pong")
+    
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user_id=user_id)
+        print(f"User {user_id} disconnected")
+
+
+# API endpoint สำหรับส่ง notification ผ่าน REST
+@app.post("/notifications/send/{user_id}")
+async def send_notification(user_id: int, message: str, notification_type: str = "info"):
+    """ส่ง notification ไปยัง user ที่ระบุผ่าน WebSocket"""
+    
+    notification = json.dumps({
+        "type": notification_type,
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }, ensure_ascii=False)
+    
+    await manager.send_to_user(notification, user_id)
+    
+    return {"status": "sent", "user_id": user_id}
+
+
+@app.post("/notifications/broadcast")
+async def broadcast_notification(message: str):
+    """ส่ง notification ไปยังทุกคน"""
+    notification = json.dumps({
+        "type": "broadcast",
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }, ensure_ascii=False)
+    
+    await manager.broadcast(notification)
+    return {"status": "broadcast sent", "connections": manager.connection_count}
+```
 
 ---
 
-## ลิงก์ Part ถัดไป
+## 6. WebSocket Authentication
 
-➡️ [Part 096 - FastAPI Advanced](./part-096.md)
+```python
+# websocket_auth.py
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, status
+import jwt
+
+SECRET_KEY = "your-secret-key"
+ALGORITHM = "HS256"
+
+app = FastAPI()
+
+
+async def get_websocket_user(token: str):
+    """ตรวจสอบ JWT token สำหรับ WebSocket"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+        username = payload.get("username")
+        return {"id": user_id, "username": username}
+    except Exception:
+        return None
+
+
+@app.websocket("/ws/authenticated")
+async def authenticated_websocket(
+    websocket: WebSocket,
+    token: str = Query(...)  # รับ token จาก query parameter
+):
+    """WebSocket ที่ต้องการ authentication"""
+    
+    # ตรวจสอบ token ก่อน accept
+    user = await get_websocket_user(token)
+    
+    if not user:
+        # ปฏิเสธ connection
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    
+    await websocket.accept()
+    
+    # ส่งข้อมูล user กลับ
+    await websocket.send_json({
+        "type": "authenticated",
+        "user": user,
+        "message": f"ยินดีต้อนรับ {user['username']}"
+    })
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_json({
+                "type": "echo",
+                "from": user["username"],
+                "message": data
+            })
+    
+    except WebSocketDisconnect:
+        print(f"User {user['username']} disconnected")
+```
+
+---
+
+## 7. Complete Chat App
+
+```python
+# main.py — Complete Chat Application
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from connection_manager import ConnectionManager
+from typing import Optional
+from datetime import datetime, timezone
+import json
+
+app = FastAPI(title="Real-time Chat")
+manager = ConnectionManager()
+
+
+@app.websocket("/ws/chat/{room_id}")
+async def chat_endpoint(
+    websocket: WebSocket,
+    room_id: str,
+    username: str = Query(..., min_length=1, max_length=50)
+):
+    """Chat WebSocket endpoint"""
+    await manager.connect(websocket, room=room_id)
+    
+    # แจ้งคนอื่น
+    await manager.broadcast_to_room(
+        json.dumps({
+            "type": "join",
+            "username": username,
+            "room": room_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "online_count": len(manager.room_connections.get(room_id, []))
+        }, ensure_ascii=False),
+        room_id
+    )
+    
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+            
+            try:
+                data = json.loads(raw_data)
+                msg_type = data.get("type", "message")
+                content = data.get("content", "")
+            except json.JSONDecodeError:
+                msg_type = "message"
+                content = raw_data
+            
+            response_data = {
+                "type": msg_type,
+                "username": username,
+                "room": room_id,
+                "content": content,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            
+            if msg_type == "message":
+                await manager.broadcast_to_room(
+                    json.dumps(response_data, ensure_ascii=False),
+                    room_id
+                )
+            elif msg_type == "typing":
+                # ส่ง typing indicator ไปคนอื่น (ไม่ส่งกลับ sender)
+                await manager.broadcast_to_room(
+                    json.dumps(response_data, ensure_ascii=False),
+                    room_id
+                )
+    
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, room=room_id)
+        
+        await manager.broadcast_to_room(
+            json.dumps({
+                "type": "leave",
+                "username": username,
+                "room": room_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "online_count": len(manager.room_connections.get(room_id, []))
+            }, ensure_ascii=False),
+            room_id
+        )
+
+
+@app.get("/rooms/{room_id}/status")
+async def room_status(room_id: str):
+    """สถานะของ room"""
+    connections = manager.room_connections.get(room_id, [])
+    return {
+        "room": room_id,
+        "online_count": len(connections)
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+```
+
+---
+
+## 8. สรุป Part 095
+
+✅ **WebSocket** สร้างด้วย `@app.websocket()` decorator  
+✅ **websocket.accept()** รับ connection จาก client  
+✅ **receive_text() / send_text()** รับส่ง text messages  
+✅ **receive_json() / send_json()** รับส่ง JSON data  
+✅ **ConnectionManager** จัดการ connections หลายตัว  
+✅ **Broadcasting** ส่ง message ไปยัง connections ทั้งหมด  
+✅ **Room-based messaging** แยก groups ด้วย rooms  
+✅ **WebSocket authentication** ตรวจสอบ token ก่อน accept  
+✅ **WebSocketDisconnect** จัดการเมื่อ client ตัด connection  
+
+---
+
+## ✅ จบ FastAPI Section!
+
+คุณได้เรียนรู้ FastAPI ครบทั้ง:
+- **Part 086**: FastAPI Basics
+- **Part 087**: Path & Query Parameters  
+- **Part 088**: Request Body & File Upload
+- **Part 089**: Dependencies
+- **Part 090**: Authentication (JWT)
+- **Part 091**: Database Integration (async SQLAlchemy)
+- **Part 092**: Background Tasks (BackgroundTasks + Celery)
+- **Part 093**: Middleware & CORS
+- **Part 094**: Testing
+- **Part 095**: WebSockets
+
+*Part 095/100+ | Python Course - Beginner to World-Class*
