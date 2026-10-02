@@ -1,714 +1,496 @@
-# Part 093 - FastAPI Pydantic Validation
-
-## เป้าหมายการเรียนรู้
-
-- ใช้ Pydantic models ขั้นสูง
-- สร้าง Field validators
-- ทำงานกับ Nested models
-- สร้าง Custom validators
-- จัดการ Settings ด้วย Pydantic Settings
+# Part 093: FastAPI Middleware and CORS
+## หลักสูตร Python, Django, Flask, FastAPI
 
 ---
 
-## 1. Pydantic v2 พื้นฐาน
-
-Pydantic เป็น library สำหรับ data validation และ settings management โดยใช้ Python type annotations
-
-```bash
-pip install pydantic[email] pydantic-settings
-```
-
-```python
-from pydantic import BaseModel, Field, validator, field_validator, model_validator
-from typing import Optional, List, Dict, Any
-from datetime import datetime, date
-from enum import Enum
-import re
-
-
-# ─────────────────────────────────────────
-# Basic Model
-# ─────────────────────────────────────────
-
-class User(BaseModel):
-    id: int
-    username: str
-    email: str
-    is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-# สร้าง instance
-user = User(id=1, username="alice", email="alice@example.com")
-print(user)
-# id=1 username='alice' email='alice@example.com' is_active=True
-
-# แปลงเป็น dict
-user_dict = user.model_dump()
-# หรือ Pydantic v1: user.dict()
-
-# แปลงเป็น JSON string
-user_json = user.model_dump_json()
-
-# สร้างจาก dict
-user2 = User.model_validate({"id": 2, "username": "bob", "email": "bob@test.com"})
-```
+## 🎯 เป้าหมายของ Part นี้
+- สร้าง custom Middleware
+- ตั้งค่า CORS middleware
+- สร้าง timing middleware
+- สร้าง logging middleware
+- ใช้ middleware สำหรับ authentication
 
 ---
 
-## 2. Field Validators
+## 1. Middleware คืออะไร?
 
-```python
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional
+Middleware คือโค้ดที่ทำงานระหว่าง request และ response ทุกครั้ง
 
-
-class Product(BaseModel):
-    name: str = Field(
-        ...,
-        min_length=1,
-        max_length=200,
-        strip_whitespace=True,  # ตัด whitespace อัตโนมัติ
-        description="ชื่อสินค้า"
-    )
-    price: float = Field(..., gt=0, le=1_000_000)
-    discount_percent: Optional[float] = Field(None, ge=0, le=100)
-    sku: Optional[str] = Field(None, pattern=r'^[A-Z]{3}-\d{4}$')
-    tags: List[str] = Field(default_factory=list, max_items=10)
-    
-    # ─────────────────────────────────────────
-    # Field Validators (Pydantic v2)
-    # ─────────────────────────────────────────
-    
-    @field_validator('name')
-    @classmethod
-    def name_must_not_be_profanity(cls, v):
-        """ตรวจสอบว่าชื่อไม่มี bad words"""
-        bad_words = ['spam', 'scam']
-        for word in bad_words:
-            if word.lower() in v.lower():
-                raise ValueError(f'ชื่อสินค้าไม่ควรมีคำว่า "{word}"')
-        return v.title()  # แปลง Title Case
-    
-    @field_validator('price')
-    @classmethod
-    def round_price(cls, v):
-        """ปัดราคาเป็น 2 ตำแหน่งทศนิยม"""
-        return round(v, 2)
-    
-    @field_validator('tags', mode='before')
-    @classmethod
-    def clean_tags(cls, v):
-        """ทำ tags เป็น lowercase และ trim"""
-        if isinstance(v, list):
-            return [tag.lower().strip() for tag in v if tag.strip()]
-        return v
-    
-    # ─────────────────────────────────────────
-    # Model Validator (cross-field validation)
-    # ─────────────────────────────────────────
-    
-    @model_validator(mode='after')
-    def validate_discount_vs_price(self):
-        """ตรวจสอบว่า discount ไม่สูงเกินไปสำหรับสินค้าถูก"""
-        if self.discount_percent is not None:
-            if self.price < 100 and self.discount_percent > 50:
-                raise ValueError('สินค้าราคาต่ำกว่า 100 บาทลด discount สูงสุดได้ 50%')
-        return self
-    
-    # คำนวณ final price
-    @property
-    def final_price(self) -> float:
-        if self.discount_percent:
-            return self.price * (1 - self.discount_percent / 100)
-        return self.price
-
-
-# Test validation
-try:
-    product = Product(
-        name="  Python Book  ",
-        price=250.5678,
-        discount_percent=10,
-        sku="PYT-0001",
-        tags=["Python", "Programming", "  BOOK  "]
-    )
-    print(product.name)         # "Python Book" (stripped + title case)
-    print(product.price)        # 250.57 (rounded)
-    print(product.tags)         # ['python', 'programming', 'book'] (lowercase)
-    print(product.final_price)  # 225.51
-except Exception as e:
-    print(f"Validation error: {e}")
 ```
+Client → [Middleware 1] → [Middleware 2] → Route Handler → [Middleware 2] → [Middleware 1] → Client
+```
+
+ใช้สำหรับ:
+- Logging
+- Authentication
+- Rate limiting
+- CORS
+- Compression
+- Request timing
 
 ---
 
-## 3. Custom Validators
+## 2. สร้าง Middleware
 
+### วิธีที่ 1: @app.middleware("http")
 ```python
-# validators.py - Custom validators ที่ใช้ซ้ำได้
+# middleware_basic.py
 
-from pydantic import BaseModel, field_validator, EmailStr
-import re
-from datetime import date
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
+import time
 
-
-def validate_thai_phone(v: str) -> str:
-    """ตรวจสอบเบอร์โทรศัพท์ไทย"""
-    # ลบ spaces, dashes, parentheses
-    cleaned = re.sub(r'[\s\-\(\)]', '', v)
-    
-    # เบอร์ไทย: 0XX-XXX-XXXX หรือ +66XX-XXX-XXXX
-    thai_phone = re.compile(r'^(0[689]\d{8}|(\+66|0066)[689]\d{8})$')
-    
-    if not thai_phone.match(cleaned):
-        raise ValueError('เบอร์โทรศัพท์ไม่ถูกต้อง (รูปแบบ: 0XX-XXX-XXXX)')
-    
-    return cleaned
+app = FastAPI()
 
 
-def validate_thai_id(v: str) -> str:
-    """ตรวจสอบเลขบัตรประชาชนไทย"""
-    # ลบ dashes
-    cleaned = re.sub(r'[-\s]', '', v)
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    """วัดเวลาในการประมวลผล request"""
+    start_time = time.time()
     
-    if len(cleaned) != 13 or not cleaned.isdigit():
-        raise ValueError('เลขบัตรประชาชนต้องมี 13 หลัก')
+    # ส่ง request ไปให้ handler ต่อไป
+    response = await call_next(request)
     
-    # Luhn algorithm สำหรับเลขบัตรประชาชนไทย
-    digits = [int(d) for d in cleaned]
-    total = sum(digits[i] * (13 - i) for i in range(12))
-    check = (11 - (total % 11)) % 10
+    # คำนวณเวลา
+    process_time = time.time() - start_time
     
-    if check != digits[12]:
-        raise ValueError('เลขบัตรประชาชนไม่ถูกต้อง')
+    # เพิ่ม header ใน response
+    response.headers["X-Process-Time"] = f"{process_time:.4f}s"
     
-    return cleaned
+    return response
 
 
-class CustomerProfile(BaseModel):
-    full_name: str
-    email: str
-    phone: str
-    national_id: Optional[str] = None
-    birth_date: Optional[date] = None
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log ทุก request"""
+    import logging
+    logger = logging.getLogger(__name__)
     
-    @field_validator('phone')
-    @classmethod
-    def validate_phone(cls, v):
-        return validate_thai_phone(v)
+    # Log request
+    logger.info(f"→ {request.method} {request.url.path}")
     
-    @field_validator('national_id')
-    @classmethod
-    def validate_national_id(cls, v):
-        if v is not None:
-            return validate_thai_id(v)
-        return v
+    response = await call_next(request)
     
-    @field_validator('birth_date')
-    @classmethod
-    def validate_age(cls, v):
-        if v:
-            today = date.today()
-            age = (today - v).days // 365
-            if age < 18:
-                raise ValueError('ต้องมีอายุ 18 ปีขึ้นไป')
-            if age > 120:
-                raise ValueError('วันเกิดไม่ถูกต้อง')
-        return v
+    # Log response
+    logger.info(f"← {response.status_code} {request.url.path}")
     
-    @field_validator('full_name')
-    @classmethod
-    def validate_name(cls, v):
-        v = v.strip()
-        if len(v.split()) < 2:
-            raise ValueError('กรุณากรอกชื่อและนามสกุล')
-        return v
+    return response
+
+
+@app.get("/")
+def root():
+    return {"message": "Hello!"}
 ```
 
----
-
-## 4. Nested Models
-
+### วิธีที่ 2: Starlette BaseHTTPMiddleware
 ```python
-# nested_models.py
-
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from datetime import datetime
-from enum import Enum
-
-
-class OrderStatus(str, Enum):
-    pending = "pending"
-    confirmed = "confirmed"
-    shipped = "shipped"
-    delivered = "delivered"
-    cancelled = "cancelled"
-
-
-class Address(BaseModel):
-    """ที่อยู่"""
-    line1: str = Field(..., min_length=5)
-    line2: Optional[str] = None
-    city: str
-    province: str
-    zipcode: str = Field(..., pattern=r'^\d{5}$')
-    country: str = "TH"
-
-
-class ProductSnapshot(BaseModel):
-    """ข้อมูลสินค้า ณ เวลาซื้อ"""
-    product_id: int
-    name: str
-    sku: Optional[str] = None
-    price: float
-
-
-class OrderItem(BaseModel):
-    """รายการสินค้าในคำสั่งซื้อ"""
-    product: ProductSnapshot
-    quantity: int = Field(..., ge=1, le=999)
-    unit_price: float = Field(..., ge=0)
-    discount: float = Field(0, ge=0, le=100)  # discount %
-    
-    @property
-    def subtotal(self) -> float:
-        return self.unit_price * self.quantity * (1 - self.discount / 100)
-
-
-class CustomerInfo(BaseModel):
-    """ข้อมูลลูกค้า"""
-    name: str
-    email: str
-    phone: str
-    is_member: bool = False
-
-
-class ShippingMethod(str, Enum):
-    standard = "standard"
-    express = "express"
-    same_day = "same_day"
-
-
-class Order(BaseModel):
-    """คำสั่งซื้อ"""
-    id: Optional[int] = None
-    customer: CustomerInfo
-    shipping_address: Address
-    billing_address: Optional[Address] = None  # None = same as shipping
-    items: List[OrderItem] = Field(..., min_items=1)
-    shipping_method: ShippingMethod = ShippingMethod.standard
-    notes: Optional[str] = Field(None, max_length=500)
-    status: OrderStatus = OrderStatus.pending
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    
-    @property
-    def subtotal(self) -> float:
-        return sum(item.subtotal for item in self.items)
-    
-    @property
-    def shipping_cost(self) -> float:
-        costs = {
-            ShippingMethod.standard: 50,
-            ShippingMethod.express: 150,
-            ShippingMethod.same_day: 300
-        }
-        return costs[self.shipping_method]
-    
-    @property
-    def total(self) -> float:
-        return self.subtotal + self.shipping_cost
-    
-    def to_response(self) -> dict:
-        """แปลงเป็น dict สำหรับ API response"""
-        return {
-            **self.model_dump(),
-            "subtotal": self.subtotal,
-            "shipping_cost": self.shipping_cost,
-            "total": self.total
-        }
-
-
-# ─────────────────────────────────────────
-# ใช้ใน FastAPI
-# ─────────────────────────────────────────
+# starlette_middleware.py
 
 from fastapi import FastAPI
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+import time
+import logging
 
-app = FastAPI()
-
-
-@app.post("/orders", status_code=201)
-async def create_order(order: Order):
-    """สร้างคำสั่งซื้อ"""
-    # Pydantic validate nested models อัตโนมัติ
-    # order.customer, order.shipping_address, order.items ล้วน validated
-    
-    order_id = 1001
-    order_response = order.to_response()
-    order_response["id"] = order_id
-    
-    return order_response
-```
-
----
-
-## 5. Settings Management
-
-```python
-# config.py - Settings ด้วย Pydantic Settings
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
-from typing import Optional, List
-from functools import lru_cache
+logger = logging.getLogger(__name__)
 
 
-class Settings(BaseSettings):
-    """Application settings"""
+class TimingMiddleware(BaseHTTPMiddleware):
+    """Middleware วัดเวลา request"""
     
-    model_config = SettingsConfigDict(
-        env_file=".env",             # โหลดจาก .env
-        env_file_encoding="utf-8",
-        case_sensitive=False,         # KEY=value หรือ key=value เหมือนกัน
-        extra="ignore",               # ไม่ error ถ้า env var เพิ่มเติม
-    )
+    async def dispatch(self, request: Request, call_next) -> Response:
+        start_time = time.time()
+        
+        response = await call_next(request)
+        
+        process_time = time.time() - start_time
+        response.headers["X-Process-Time"] = f"{process_time:.4f}s"
+        
+        return response
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware log requests"""
     
-    # App settings
-    app_name: str = "My FastAPI App"
-    app_version: str = "1.0.0"
-    debug: bool = False
+    def __init__(self, app, log_headers: bool = False):
+        super().__init__(app)
+        self.log_headers = log_headers
     
-    # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
-    workers: int = Field(default=1, ge=1, le=32)
-    
-    # Database
-    database_url: str = Field(..., description="Database connection URL")
-    db_pool_size: int = 5
-    db_max_overflow: int = 10
-    db_echo: bool = False
-    
-    # Security
-    secret_key: str = Field(..., min_length=32)
-    algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60
-    refresh_token_expire_days: int = 30
-    
-    # CORS
-    allowed_origins: List[str] = ["http://localhost:3000"]
-    allowed_methods: List[str] = ["*"]
-    allowed_headers: List[str] = ["*"]
-    
-    # Email
-    mail_server: Optional[str] = None
-    mail_port: int = 587
-    mail_tls: bool = True
-    mail_username: Optional[str] = None
-    mail_password: Optional[str] = None
-    mail_from: Optional[str] = None
-    
-    # Redis
-    redis_url: Optional[str] = None
-    
-    # File Upload
-    max_upload_size_mb: int = Field(default=16, ge=1, le=100)
-    upload_dir: str = "uploads"
-    allowed_file_types: List[str] = ["image/jpeg", "image/png", "image/gif"]
-    
-    # Validators
-    @field_validator('database_url')
-    @classmethod
-    def validate_db_url(cls, v):
-        """ตรวจสอบว่า database_url ถูกรูปแบบ"""
-        if not v.startswith(('sqlite', 'postgresql', 'mysql', 'mongodb')):
-            raise ValueError('database_url รูปแบบไม่รองรับ')
-        # แปลง postgres:// เป็น postgresql://
-        if v.startswith('postgres://'):
-            return v.replace('postgres://', 'postgresql://', 1)
-        return v
-    
-    @field_validator('secret_key')
-    @classmethod
-    def validate_secret_key(cls, v):
-        if v in ['secret', 'change-me', 'my-secret']:
-            raise ValueError('กรุณาเปลี่ยน secret_key เป็นค่าที่ปลอดภัย')
-        return v
-    
-    @property
-    def max_upload_size_bytes(self) -> int:
-        return self.max_upload_size_mb * 1024 * 1024
-    
-    @property
-    def is_development(self) -> bool:
-        return self.debug
-    
-    @property
-    def database_settings(self) -> dict:
-        return {
-            "url": self.database_url,
-            "pool_size": self.db_pool_size,
-            "max_overflow": self.db_max_overflow,
-            "echo": self.db_echo
+    async def dispatch(self, request: Request, call_next) -> Response:
+        # Log request
+        log_data = {
+            "method": request.method,
+            "url": str(request.url),
+            "client": request.client.host if request.client else "unknown",
         }
+        
+        if self.log_headers:
+            log_data["headers"] = dict(request.headers)
+        
+        logger.info(f"Request: {log_data}")
+        
+        response = await call_next(request)
+        
+        logger.info(f"Response: {response.status_code}")
+        
+        return response
 
 
-# Singleton pattern ด้วย lru_cache
-@lru_cache()
-def get_settings() -> Settings:
-    """
-    สร้าง Settings instance ครั้งเดียว
-    lru_cache ทำให้ function รัน 1 ครั้ง และ cache ผล
-    """
-    return Settings()
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple rate limiting middleware"""
+    
+    def __init__(self, app, max_requests: int = 100, window: int = 60):
+        super().__init__(app)
+        self.max_requests = max_requests
+        self.window = window
+        self.requests = {}  # ใน production ใช้ Redis
+    
+    async def dispatch(self, request: Request, call_next) -> Response:
+        client_ip = request.client.host if request.client else "unknown"
+        current_time = time.time()
+        
+        # ล้าง requests เก่า
+        self.requests = {
+            ip: times
+            for ip, times in self.requests.items()
+            if any(t > current_time - self.window for t in times)
+        }
+        
+        # ตรวจสอบ rate limit
+        if client_ip not in self.requests:
+            self.requests[client_ip] = []
+        
+        # กรอง requests ใน window
+        self.requests[client_ip] = [
+            t for t in self.requests[client_ip]
+            if t > current_time - self.window
+        ]
+        
+        if len(self.requests[client_ip]) >= self.max_requests:
+            from starlette.responses import JSONResponse
+            return JSONResponse(
+                {"error": "Rate limit exceeded", "retry_after": self.window},
+                status_code=429,
+                headers={"Retry-After": str(self.window)}
+            )
+        
+        self.requests[client_ip].append(current_time)
+        
+        response = await call_next(request)
+        
+        # เพิ่ม rate limit headers
+        remaining = self.max_requests - len(self.requests[client_ip])
+        response.headers["X-RateLimit-Limit"] = str(self.max_requests)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        
+        return response
 
 
-# ใช้ใน FastAPI
-from fastapi import FastAPI, Depends
-
+# ใช้ middleware
 app = FastAPI()
 
-
-@app.get("/info")
-async def app_info(settings: Settings = Depends(get_settings)):
-    """ดูข้อมูล app จาก settings"""
-    return {
-        "app_name": settings.app_name,
-        "version": settings.app_version,
-        "debug": settings.debug
-    }
-```
-
-### 5.1 .env ไฟล์
-
-```bash
-# .env
-
-# App
-APP_NAME="My FastAPI App"
-DEBUG=false
-
-# Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/myapp
-
-# Security  
-SECRET_KEY=your-very-long-and-random-secret-key-here-minimum-32-chars
-
-# CORS (comma separated)
-ALLOWED_ORIGINS=["http://localhost:3000","https://app.example.com"]
-
-# Email
-MAIL_SERVER=smtp.gmail.com
-MAIL_USERNAME=myapp@gmail.com
-MAIL_PASSWORD=app-specific-password
-
-# Redis
-REDIS_URL=redis://localhost:6379/0
+app.add_middleware(TimingMiddleware)
+app.add_middleware(RequestLoggingMiddleware, log_headers=False)
+app.add_middleware(RateLimitMiddleware, max_requests=100, window=60)
 ```
 
 ---
 
-## 6. Advanced Pydantic Features
+## 3. CORS Middleware
+
+CORS (Cross-Origin Resource Sharing) อนุญาตให้ web browsers เข้าถึง API จาก origin อื่น
 
 ```python
-# advanced.py
+# cors_setup.py
 
-from pydantic import BaseModel, Field, computed_field
-from typing import Optional, ClassVar
-from datetime import datetime
-
-
-class BlogPost(BaseModel):
-    """Blog post พร้อม computed fields"""
-    
-    title: str
-    content: str
-    tags: list[str] = []
-    is_published: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
-    
-    # Class variable (ไม่ใช่ field)
-    MAX_TITLE_LENGTH: ClassVar[int] = 200
-    
-    @computed_field  # Pydantic v2
-    @property
-    def word_count(self) -> int:
-        """คำนวณจำนวนคำ"""
-        return len(self.content.split())
-    
-    @computed_field
-    @property
-    def reading_time_minutes(self) -> int:
-        """เวลาอ่าน (200 words/minute)"""
-        return max(1, self.word_count // 200)
-    
-    @computed_field
-    @property
-    def excerpt(self) -> str:
-        """ตัวอย่างเนื้อหา 150 ตัวอักษรแรก"""
-        return self.content[:150] + "..." if len(self.content) > 150 else self.content
-
-
-# ─────────────────────────────────────────
-# Model Config
-# ─────────────────────────────────────────
-
-class UserDB(BaseModel):
-    """User model สำหรับ database"""
-    
-    model_config = {
-        "from_attributes": True,   # อ่านจาก ORM objects (Pydantic v2)
-        "populate_by_name": True,  # อนุญาตใช้ชื่อ field หรือ alias
-        "str_strip_whitespace": True,  # strip whitespace อัตโนมัติ
-        "str_max_length": 200,    # max length สำหรับทุก str fields
-        "frozen": False,           # อนุญาตแก้ไข
-    }
-    
-    id: int
-    username: str
-    email: str
-    
-    # Field alias - ใช้ "user_name" ใน input, "username" ใน code
-    display_name: Optional[str] = Field(None, alias="name")
-
-
-# ─────────────────────────────────────────
-# Discriminated Unions
-# ─────────────────────────────────────────
-
-from typing import Union, Literal
-
-
-class PaymentCard(BaseModel):
-    payment_type: Literal["card"]
-    card_number: str
-    expiry: str
-    cvv: str
-
-
-class PaymentQR(BaseModel):
-    payment_type: Literal["qr"]
-    qr_ref: str
-
-
-class PaymentTransfer(BaseModel):
-    payment_type: Literal["transfer"]
-    bank: str
-    account: str
-
-
-# Union ที่ discriminate ด้วย payment_type
-Payment = Union[PaymentCard, PaymentQR, PaymentTransfer]
-
-
-class Order(BaseModel):
-    product_id: int
-    quantity: int
-    payment: Payment = Field(..., discriminator="payment_type")
-
-
-# ─────────────────────────────────────────
-# Generic Models
-# ─────────────────────────────────────────
-
-from typing import TypeVar, Generic
-
-T = TypeVar('T')
-
-
-class APIResponse(BaseModel, Generic[T]):
-    """Generic response wrapper"""
-    success: bool = True
-    data: Optional[T] = None
-    error: Optional[str] = None
-    code: int = 200
-
-
-class PaginatedResponse(BaseModel, Generic[T]):
-    """Generic paginated response"""
-    items: list[T]
-    total: int
-    page: int
-    per_page: int
-    pages: int
-    has_next: bool
-    has_prev: bool
-
-
-# ใช้งาน
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+# CORS Configuration
+origins = [
+    "http://localhost:3000",         # React development
+    "http://localhost:8080",         # Vue development
+    "https://myapp.com",             # Production frontend
+    "https://www.myapp.com",
+]
 
-class Product(BaseModel):
-    id: int
-    name: str
-    price: float
+app.add_middleware(
+    CORSMiddleware,
+    
+    # อนุญาต origins
+    allow_origins=origins,
+    # หรือ allow_origins=["*"] สำหรับ public API (ไม่แนะนำสำหรับ auth endpoints)
+    
+    # อนุญาต credentials (cookies, Authorization headers)
+    allow_credentials=True,
+    
+    # อนุญาต HTTP methods
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    # หรือ allow_methods=["*"]
+    
+    # อนุญาต headers
+    allow_headers=["*"],
+    # หรือระบุเฉพาะ: allow_headers=["Content-Type", "Authorization"]
+    
+    # Expose headers ให้ browser อ่านได้
+    expose_headers=["X-Request-ID", "X-Process-Time"],
+    
+    # Cache preflight request นานแค่ไหน (วินาที)
+    max_age=600
+)
 
 
-@app.get("/products", response_model=PaginatedResponse[Product])
-async def list_products():
-    products = [
-        Product(id=1, name="Book", price=59.0),
-        Product(id=2, name="Pen", price=25.0),
+@app.get("/api/data")
+def get_data():
+    return {"data": "accessible from other origins"}
+```
+
+### CORS สำหรับ Environment ต่างๆ
+```python
+# cors_by_environment.py
+
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+env = os.environ.get("ENVIRONMENT", "development")
+
+if env == "development":
+    # Development: อนุญาตทุก origin
+    origins = ["*"]
+    allow_credentials = False  # ไม่ได้กับ wildcard
+elif env == "staging":
+    origins = [
+        "https://staging.myapp.com",
+        "http://localhost:3000"
     ]
-    return PaginatedResponse(
-        items=products,
-        total=2,
-        page=1,
-        per_page=10,
-        pages=1,
-        has_next=False,
-        has_prev=False
-    )
+    allow_credentials = True
+else:  # production
+    origins = [
+        "https://myapp.com",
+        "https://www.myapp.com",
+        "https://app.myapp.com"
+    ]
+    allow_credentials = True
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 ```
 
 ---
 
-## Exercises
+## 4. Security Middleware
 
-### Exercise 1: E-commerce Models
-สร้าง Pydantic models สำหรับ:
-- `Product` พร้อม validators สำหรับ price, sku
-- `CartItem` (product_id, quantity, options)
-- `Cart` (items, coupon_code)
-- Computed: subtotal, discount, total
-- Cross-field: validate ว่า total > 0 เมื่อมี items
+```python
+# security_middleware.py
 
-### Exercise 2: Settings สำหรับ Production
-สร้าง Settings class ที่:
-- รับจาก .env
-- Required: DATABASE_URL, SECRET_KEY
-- Optional: EMAIL settings, REDIS_URL
-- Validators สำหรับทุก required fields
-- Test ว่า settings โหลดถูกต้อง
+from fastapi import FastAPI
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
-### Exercise 3: Custom Validators
-สร้าง validators สำหรับ:
-- เลขบัตรเครดิต (Luhn algorithm)
-- URL ต้องเป็น https
-- Password strength (uppercase, number, special char)
-- Date range (start_date < end_date)
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """เพิ่ม security headers"""
+    
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        
+        # Security headers
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'"
+        )
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        
+        return response
+
+
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    """เพิ่ม unique Request ID"""
+    
+    async def dispatch(self, request: Request, call_next) -> Response:
+        import uuid
+        
+        # ดึงหรือสร้าง request ID
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        
+        return response
+
+
+app = FastAPI()
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RequestIDMiddleware)
+```
 
 ---
 
-## สรุป
+## 5. Authentication Middleware
 
-สิ่งที่เรียนรู้ใน Part นี้:
-- **Field validators** ตรวจสอบและแปลง field เดียว
-- **Model validators** cross-field validation
-- **Nested models** จัดการ complex data structures
-- **Custom validators** logic ที่ซับซ้อนและ reusable
-- **Pydantic Settings** จัดการ configuration จาก env vars
-- **Computed fields** ค่าที่คำนวณจาก fields อื่น
-- **Generic models** API response templates
+```python
+# auth_middleware.py
+
+from fastapi import FastAPI, Request, HTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+import jwt
+
+SECRET_KEY = "your-secret-key"
+ALGORITHM = "HS256"
+
+# Paths ที่ไม่ต้องการ authentication
+PUBLIC_PATHS = {
+    "/",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/auth/login",
+    "/auth/register",
+    "/health"
+}
+
+
+class JWTAuthMiddleware(BaseHTTPMiddleware):
+    """Middleware ตรวจสอบ JWT token"""
+    
+    async def dispatch(self, request: Request, call_next) -> Response:
+        # Skip authentication สำหรับ public paths
+        if request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        
+        # Skip OPTIONS requests (CORS preflight)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        
+        # ตรวจสอบ Authorization header
+        auth_header = request.headers.get("Authorization")
+        
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                {"error": "Missing or invalid Authorization header"},
+                status_code=401
+            )
+        
+        token = auth_header.split(" ")[1]
+        
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            # เก็บ user info ไว้ใน request state
+            request.state.user = payload
+        except jwt.ExpiredSignatureError:
+            return JSONResponse({"error": "Token expired"}, status_code=401)
+        except jwt.InvalidTokenError:
+            return JSONResponse({"error": "Invalid token"}, status_code=401)
+        
+        return await call_next(request)
+
+
+app = FastAPI()
+app.add_middleware(JWTAuthMiddleware)
+```
 
 ---
 
-## ลิงก์ Part ถัดไป
+## 6. Complete Middleware Stack
 
-➡️ [Part 094 - FastAPI Database (SQLAlchemy Async)](./part-094.md)
+```python
+# complete_app.py
+
+import os
+import time
+import uuid
+import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Complete Middleware Demo")
+
+# 1. CORS (ต้องเป็นตัวแรกหรือตัวต้นๆ)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+
+class FullLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        request_id = str(uuid.uuid4())[:8]
+        start = time.time()
+        
+        logger.info(f"[{request_id}] → {request.method} {request.url.path}")
+        
+        response = await call_next(request)
+        
+        duration = time.time() - start
+        logger.info(f"[{request_id}] ← {response.status_code} ({duration:.3f}s)")
+        
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Response-Time"] = f"{duration:.3f}s"
+        
+        return response
+
+
+# 2. Logging
+app.add_middleware(FullLoggingMiddleware)
+
+
+@app.get("/")
+async def root():
+    return {"message": "Middleware stack demo"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("complete_app:app", host="0.0.0.0", port=8000, reload=True)
+```
+
+---
+
+## 7. สรุป Part 093
+
+✅ **Middleware** ทำงานระหว่าง request และ response ทุก request  
+✅ **@app.middleware("http")** วิธีง่ายสุดในการสร้าง middleware  
+✅ **BaseHTTPMiddleware** class-based approach ที่ reusable  
+✅ **CORSMiddleware** จัดการ Cross-Origin Resource Sharing  
+✅ **Security headers** เพิ่มความปลอดภัยให้ API  
+✅ **Request ID** ใช้ track requests ใน logs  
+✅ **Rate limiting** ป้องกัน abuse  
+
+---
+
+## ➡️ ถัดไป: Part 094 - FastAPI Testing
+
+*Part 093/100+ | Python Course - Beginner to World-Class*

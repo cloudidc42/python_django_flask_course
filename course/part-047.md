@@ -1,996 +1,1804 @@
-# Part 047: CLI Applications
+# Part 047: CLI Applications with Python
 ## หลักสูตร Python, Django, Flask, FastAPI
 
 ---
 
 ## 🎯 เป้าหมายของ Part นี้
 
-- ใช้ argparse สร้าง CLI tools
-- ใช้ click library สำหรับ CLI ที่ซับซ้อน
-- ใช้ typer (Click + Type Hints)
-- สร้าง command groups
-- ตั้งค่า options และ arguments
-- เพิ่มสี output ด้วย rich
-- แสดง progress bars
+- เข้าใจการใช้ `argparse` สร้าง CLI tools แบบ built-in
+- ใช้ `click` library สำหรับ CLI ที่มีโครงสร้างซับซ้อน
+- ใช้ `typer` ที่ผสม Click กับ Type Hints
+- แสดงผลแบบสวยงามด้วย `rich` library
+- สร้าง CLI tool ครบวงจรสำหรับ Task Manager
 
 ---
 
-## 1. argparse - Built-in Python
+## 1. argparse — Built-in Python CLI Parser
+
+`argparse` เป็น module ที่มาพร้อม Python สำหรับรับ arguments จาก command line
+
+### 1.1 ArgumentParser พื้นฐาน
 
 ```python
 import argparse
 import sys
 from pathlib import Path
 
-# === Basic argparse ===
+# === สร้าง ArgumentParser พื้นฐาน ===
 def create_basic_parser():
+    """สร้าง parser สำหรับ file processing tool"""
     parser = argparse.ArgumentParser(
-        description="File processing tool",
-        epilog="Example: python script.py input.txt --output out.txt --verbose"
+        prog="filetool",                          # ชื่อโปรแกรม
+        description="เครื่องมือจัดการไฟล์",        # คำอธิบายหลัก
+        epilog="ตัวอย่าง: python script.py input.txt --output out.txt --verbose",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
-    # Positional argument (required)
+    return parser
+
+# === เพิ่ม Positional Arguments (บังคับ) ===
+def add_positional_args(parser):
+    """Positional arguments ไม่ต้องใช้ flag"""
     parser.add_argument(
         "input_file",
         type=str,
-        help="Input file path"
+        help="ไฟล์ input ที่ต้องการประมวลผล"
+    )
+    parser.add_argument(
+        "output_file",
+        nargs="?",           # optional (0 หรือ 1 ค่า)
+        default="output.txt",
+        help="ไฟล์ output (default: output.txt)"
+    )
+
+# === เพิ่ม Optional Arguments ===
+def add_optional_args(parser):
+    """Optional arguments ใช้ -- นำหน้า"""
+    # Boolean flag
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",  # เก็บค่า True ถ้าใส่ flag นี้
+        help="แสดงข้อมูล debug เพิ่มเติม"
     )
     
-    # Optional argument
+    # String option
     parser.add_argument(
-        "--output", "-o",
+        "--encoding",
         type=str,
-        default=None,
-        help="Output file path (default: stdout)"
+        default="utf-8",
+        choices=["utf-8", "utf-16", "ascii", "tis620"],  # ค่าที่อนุญาต
+        help="encoding ของไฟล์ (default: utf-8)"
     )
     
-    # Flag (boolean)
+    # Integer option
     parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose output"
-    )
-    
-    # Numeric argument
-    parser.add_argument(
-        "--lines", "-n",
+        "--lines",
         type=int,
-        default=10,
-        help="Number of lines to process (default: 10)"
-    )
-    
-    # Choices
-    parser.add_argument(
-        "--format",
-        choices=["json", "csv", "xml"],
-        default="json",
-        help="Output format"
+        default=None,
+        metavar="N",          # ชื่อที่แสดงใน help
+        help="จำนวนบรรทัดที่ต้องการอ่าน"
     )
     
     # Multiple values
     parser.add_argument(
         "--tags",
-        nargs="+",  # หนึ่งหรือมากกว่า
-        help="Tags to apply"
+        nargs="+",            # 1 ค่าขึ้นไป
+        type=str,
+        help="tags สำหรับไฟล์ เช่น --tags python cli tool"
     )
     
-    # Multiple values แบบ fixed count
+    # Store constant
     parser.add_argument(
-        "--range",
-        nargs=2,
-        type=int,
-        metavar=("START", "END"),
-        help="Range: START END"
+        "--format",
+        dest="output_format",
+        choices=["json", "csv", "txt"],
+        default="txt",
+        help="รูปแบบ output"
     )
-    
-    return parser
 
-
-# ทดสอบ
-def demo_argparse():
+# === ตัวอย่างการใช้งาน ===
+def main():
     parser = create_basic_parser()
+    add_positional_args(parser)
+    add_optional_args(parser)
     
-    # Simulate command line args
-    test_args = [
-        "input.txt",
-        "--output", "output.txt",
-        "--verbose",
-        "--lines", "20",
-        "--format", "csv",
-        "--tags", "python", "tutorial",
-        "--range", "1", "100"
-    ]
+    # Parse arguments
+    args = parser.parse_args()
     
-    args = parser.parse_args(test_args)
+    # ใช้งาน arguments
+    if args.verbose:
+        print(f"[DEBUG] Input: {args.input_file}")
+        print(f"[DEBUG] Output: {args.output_file}")
+        print(f"[DEBUG] Encoding: {args.encoding}")
     
-    print(f"Input: {args.input_file}")
-    print(f"Output: {args.output}")
-    print(f"Verbose: {args.verbose}")
-    print(f"Lines: {args.lines}")
-    print(f"Format: {args.format}")
-    print(f"Tags: {args.tags}")
-    print(f"Range: {args.range}")
+    # ตรวจสอบไฟล์ input
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        print(f"Error: ไม่พบไฟล์ {args.input_file}", file=sys.stderr)
+        sys.exit(1)
+    
+    print(f"กำลังประมวลผล {args.input_file}...")
+    print(f"Format: {args.output_format}")
+    if args.tags:
+        print(f"Tags: {', '.join(args.tags)}")
 
+if __name__ == "__main__":
+    main()
+```
 
-# === Subcommands (subparsers) ===
-def create_cli_with_subcommands():
-    parser = argparse.ArgumentParser(description="Task Manager CLI")
-    
-    subparsers = parser.add_subparsers(
-        dest="command",
-        help="Commands"
+### 1.2 Subparsers — คำสั่งย่อย
+
+```python
+import argparse
+
+# === Subparsers สำหรับคำสั่งย่อย ===
+def create_git_like_cli():
+    """สร้าง CLI คล้าย git ที่มีคำสั่งย่อย"""
+    parser = argparse.ArgumentParser(
+        description="ระบบจัดการโปรเจกต์"
     )
     
-    # === add command ===
-    add_parser = subparsers.add_parser("add", help="Add a task")
-    add_parser.add_argument("title", help="Task title")
-    add_parser.add_argument("--priority", choices=["low", "medium", "high"], default="medium")
-    add_parser.add_argument("--due", help="Due date (YYYY-MM-DD)")
+    # สร้าง subparsers
+    subparsers = parser.add_subparsers(
+        title="คำสั่งที่ใช้ได้",
+        dest="command",          # เก็บชื่อ subcommand ใน args.command
+        description="เลือกคำสั่งที่ต้องการ",
+        help="คำสั่งย่อยที่ใช้ได้"
+    )
     
-    # === list command ===
-    list_parser = subparsers.add_parser("list", help="List tasks")
-    list_parser.add_argument("--status", choices=["all", "pending", "done"], default="all")
-    list_parser.add_argument("--priority", choices=["low", "medium", "high"])
+    # === subcommand: init ===
+    init_parser = subparsers.add_parser(
+        "init",
+        help="สร้างโปรเจกต์ใหม่"
+    )
+    init_parser.add_argument("name", help="ชื่อโปรเจกต์")
+    init_parser.add_argument(
+        "--template",
+        choices=["django", "flask", "fastapi", "basic"],
+        default="basic",
+        help="template ที่ใช้"
+    )
     
-    # === complete command ===
-    complete_parser = subparsers.add_parser("complete", help="Mark task as done")
-    complete_parser.add_argument("task_id", type=int, help="Task ID")
+    # === subcommand: build ===
+    build_parser = subparsers.add_parser(
+        "build",
+        help="Build โปรเจกต์"
+    )
+    build_parser.add_argument(
+        "--env",
+        choices=["dev", "staging", "prod"],
+        default="dev",
+        help="environment ที่ build"
+    )
+    build_parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="ลบไฟล์เก่าก่อน build"
+    )
     
-    # === delete command ===
-    delete_parser = subparsers.add_parser("delete", help="Delete a task")
-    delete_parser.add_argument("task_id", type=int, help="Task ID")
-    delete_parser.add_argument("--force", "-f", action="store_true", help="Skip confirmation")
+    # === subcommand: deploy ===
+    deploy_parser = subparsers.add_parser(
+        "deploy",
+        help="Deploy โปรเจกต์"
+    )
+    deploy_parser.add_argument("server", help="server ที่ deploy ไป")
+    deploy_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="port ที่ใช้ (default: 8000)"
+    )
+    deploy_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="deploy แม้มีข้อผิดพลาด"
+    )
     
     return parser
 
+# === Handler functions ===
+def handle_init(args):
+    print(f"สร้างโปรเจกต์ '{args.name}' ด้วย template '{args.template}'")
 
-def handle_task_command(args):
-    """Handle task commands"""
-    if args.command == "add":
-        print(f"Adding task: '{args.title}' (priority: {args.priority})")
-    elif args.command == "list":
-        print(f"Listing tasks (status: {args.status})")
-    elif args.command == "complete":
-        print(f"Marking task {args.task_id} as done")
-    elif args.command == "delete":
-        if not args.force:
-            confirm = input(f"Delete task {args.task_id}? [y/N]: ")
-            if confirm.lower() != "y":
-                print("Cancelled")
-                return
-        print(f"Deleted task {args.task_id}")
+def handle_build(args):
+    if args.clean:
+        print("ลบไฟล์เก่า...")
+    print(f"Building สำหรับ environment: {args.env}")
+
+def handle_deploy(args):
+    force_str = " (force)" if args.force else ""
+    print(f"Deploying ไปยัง {args.server}:{args.port}{force_str}")
+
+def main():
+    parser = create_git_like_cli()
+    args = parser.parse_args()
+    
+    # เรียก handler ตาม subcommand
+    handlers = {
+        "init": handle_init,
+        "build": handle_build,
+        "deploy": handle_deploy,
+    }
+    
+    if args.command is None:
+        parser.print_help()
+        return
+    
+    handler = handlers.get(args.command)
+    if handler:
+        handler(args)
     else:
-        print("Please specify a command")
+        print(f"ไม่รู้จักคำสั่ง: {args.command}")
 
+if __name__ == "__main__":
+    main()
+```
 
-# ทดสอบ
-demo_argparse()
+### 1.3 Custom Types และ Validation
 
-task_parser = create_cli_with_subcommands()
-args = task_parser.parse_args(["add", "Buy groceries", "--priority", "high"])
-handle_task_command(args)
+```python
+import argparse
+from pathlib import Path
+import re
+
+# === Custom Type Functions ===
+def valid_port(value):
+    """ตรวจสอบว่าเป็น port ที่ถูกต้อง (1-65535)"""
+    try:
+        port = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"'{value}' ไม่ใช่ตัวเลข")
+    
+    if not (1 <= port <= 65535):
+        raise argparse.ArgumentTypeError(
+            f"Port ต้องอยู่ระหว่าง 1-65535, ได้รับ: {port}"
+        )
+    return port
+
+def valid_email(value):
+    """ตรวจสอบ email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(pattern, value):
+        raise argparse.ArgumentTypeError(f"'{value}' ไม่ใช่ email ที่ถูกต้อง")
+    return value
+
+def existing_file(value):
+    """ตรวจสอบว่าไฟล์มีอยู่จริง"""
+    path = Path(value)
+    if not path.exists():
+        raise argparse.ArgumentTypeError(f"ไม่พบไฟล์: {value}")
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"ไม่ใช่ไฟล์: {value}")
+    return path
+
+def writable_dir(value):
+    """ตรวจสอบว่า directory เขียนได้"""
+    path = Path(value)
+    if not path.exists():
+        raise argparse.ArgumentTypeError(f"ไม่พบ directory: {value}")
+    if not path.is_dir():
+        raise argparse.ArgumentTypeError(f"ไม่ใช่ directory: {value}")
+    return path
+
+# === ใช้ Custom Types ===
+def create_server_parser():
+    parser = argparse.ArgumentParser(description="Server Configuration")
+    
+    parser.add_argument(
+        "--port",
+        type=valid_port,       # ใช้ custom type function
+        default=8000,
+        help="Port number (1-65535)"
+    )
+    
+    parser.add_argument(
+        "--admin-email",
+        type=valid_email,
+        required=True,         # บังคับต้องใส่
+        help="Admin email address"
+    )
+    
+    parser.add_argument(
+        "--config",
+        type=existing_file,    # ไฟล์ต้องมีอยู่จริง
+        help="Config file path"
+    )
+    
+    parser.add_argument(
+        "--log-dir",
+        type=writable_dir,
+        default=Path("."),
+        help="Directory สำหรับ log files"
+    )
+    
+    return parser
+
+# ทดสอบ: python script.py --port 8080 --admin-email admin@example.com
 ```
 
 ---
 
-## 2. Click Library
+## 2. Click Library — Elegant CLI Framework
+
+Click เป็น library ที่ใช้ decorators สร้าง CLI ที่สวยงามและยืดหยุ่น
 
 ```bash
+# ติดตั้ง click
 pip install click
 ```
 
+### 2.1 Click Commands พื้นฐาน
+
 ```python
 import click
-import json
-import sys
 from pathlib import Path
 
-# === Basic Click Commands ===
+# === คำสั่งพื้นฐาน ===
 @click.command()
-@click.argument("name")
-@click.option("--greeting", "-g", default="Hello", help="Greeting to use")
-@click.option("--count", "-n", default=1, type=int, help="Number of times")
-@click.option("--upper/--no-upper", default=False, help="Uppercase output")
-def greet(name: str, greeting: str, count: int, upper: bool):
-    """Greet someone. NAME is the person to greet."""
+@click.argument("name")                          # Positional argument
+@click.option("--count", "-c",                   # Optional ที่ใช้ได้ทั้ง --count และ -c
+    default=1,
+    show_default=True,                           # แสดงค่า default ใน help
+    help="จำนวนครั้งที่ทักทาย"
+)
+@click.option("--language", "-l",
+    type=click.Choice(["th", "en", "jp"]),       # ค่าที่อนุญาต
+    default="th",
+    show_default=True,
+    help="ภาษาที่ใช้ทักทาย"
+)
+@click.option("--shout/--no-shout",              # Boolean flag
+    default=False,
+    help="แสดงเป็นตัวพิมพ์ใหญ่"
+)
+def greet(name, count, language, shout):
+    """ทักทายผู้ใช้ตามจำนวนที่กำหนด"""
+    greetings = {
+        "th": f"สวัสดี {name}!",
+        "en": f"Hello, {name}!",
+        "jp": f"こんにちは {name}!",
+    }
+    message = greetings.get(language, f"Hello, {name}!")
+    
+    if shout:
+        message = message.upper()
+    
     for _ in range(count):
-        message = f"{greeting}, {name}!"
-        if upper:
-            message = message.upper()
         click.echo(message)
 
+# รัน: python script.py greet สมชาย --count 3 --language th
+```
 
-# === Click with Types ===
+### 2.2 Click Options ขั้นสูง
+
+```python
+import click
+import os
+
+# === Password input (ซ่อน input) ===
 @click.command()
-@click.argument("input_file", type=click.Path(exists=True, readable=True))
-@click.argument("output_file", type=click.Path(writable=True))
-@click.option(
-    "--format", "-f",
-    type=click.Choice(["json", "csv", "xml"], case_sensitive=False),
-    default="json",
-    show_default=True
+@click.option("--username", prompt="ชื่อผู้ใช้", help="Username")
+@click.option("--password",
+    prompt="รหัสผ่าน",
+    hide_input=True,          # ซ่อน input
+    confirmation_prompt=True, # ให้ใส่ซ้ำเพื่อยืนยัน
+    help="Password"
 )
-@click.option("--lines", "-n", default=-1, type=int, help="Limit lines (-1 for all)")
-@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
-def convert(input_file: str, output_file: str, format: str, lines: int, verbose: bool):
-    """Convert input file to specified format."""
-    if verbose:
-        click.echo(f"Converting {input_file} to {output_file} as {format}")
-    
-    # Read input
-    with open(input_file) as f:
-        content = f.readlines()
-    
-    if lines > 0:
-        content = content[:lines]
-    
-    click.echo(f"Processed {len(content)} lines")
+def login(username, password):
+    """เข้าสู่ระบบ"""
+    click.echo(f"กำลังเข้าสู่ระบบในฐานะ: {username}")
 
+# === File options ===
+@click.command()
+@click.argument("input_file",
+    type=click.Path(exists=True, readable=True, path_type=Path)
+)
+@click.option("--output", "-o",
+    type=click.File("w", encoding="utf-8"),   # เปิดไฟล์เลย
+    default="-",                               # "-" หมายถึง stdout
+    help="Output file (default: stdout)"
+)
+@click.option("--format",
+    type=click.Choice(["json", "csv", "yaml"]),
+    default="json"
+)
+def convert(input_file, output, format):
+    """แปลงไฟล์เป็น format ต่างๆ"""
+    click.echo(f"Converting {input_file} to {format}", file=output)
 
-# === Click Groups (Multiple Commands) ===
+# === Environment variable support ===
+@click.command()
+@click.option("--api-key",
+    envvar="MY_API_KEY",      # อ่านจาก environment variable ได้
+    required=True,
+    help="API key (หรือ MY_API_KEY env var)"
+)
+@click.option("--base-url",
+    envvar="MY_BASE_URL",
+    default="https://api.example.com",
+    help="Base URL"
+)
+def api_call(api_key, base_url):
+    """เรียก API"""
+    click.echo(f"Calling {base_url} with key: {api_key[:4]}****")
+
+# === Multiple values ===
+@click.command()
+@click.option("--include", "-i",
+    multiple=True,            # รับได้หลายค่า: --include *.py --include *.txt
+    help="รูปแบบไฟล์ที่รวม"
+)
+@click.option("--exclude", "-e",
+    multiple=True,
+    help="รูปแบบไฟล์ที่ยกเว้น"
+)
+def scan(include, exclude):
+    """สแกนไฟล์"""
+    click.echo(f"Include patterns: {list(include)}")
+    click.echo(f"Exclude patterns: {list(exclude)}")
+```
+
+### 2.3 Click Groups — คำสั่งกลุ่ม
+
+```python
+import click
+
+# === Main CLI group ===
 @click.group()
-@click.option("--debug/--no-debug", default=False, envvar="DEBUG")
-@click.pass_context
-def cli(ctx, debug: bool):
-    """Task Manager - manage your tasks from CLI"""
-    # ctx.obj เก็บ shared state ระหว่าง commands
+@click.option("--debug/--no-debug", default=False)
+@click.option("--config",
+    type=click.Path(exists=False),
+    default="~/.myapp/config.yaml",
+    help="Config file path"
+)
+@click.version_option("1.0.0")          # เพิ่ม --version flag
+@click.pass_context                      # รับ context object
+def cli(ctx, debug, config):
+    """My Application — เครื่องมือจัดการระบบ"""
+    # เก็บ shared state ใน context
     ctx.ensure_object(dict)
-    ctx.obj["DEBUG"] = debug
-    ctx.obj["tasks"] = []  # In-memory storage
+    ctx.obj["debug"] = debug
+    ctx.obj["config"] = config
     
     if debug:
-        click.echo("Debug mode enabled", err=True)
+        click.echo(f"[DEBUG] Config: {config}", err=True)
 
+# === Database commands group ===
+@cli.group()
+def db():
+    """คำสั่งจัดการ Database"""
+    pass
 
-@cli.command()
-@click.argument("title")
-@click.option("--priority", 
-              type=click.Choice(["low", "medium", "high"]),
-              default="medium")
-@click.option("--due", type=click.DateTime(formats=["%Y-%m-%d"]), default=None)
+@db.command("migrate")
+@click.option("--fake", is_flag=True, help="Fake migration")
 @click.pass_context
-def add(ctx, title: str, priority: str, due):
-    """Add a new task"""
-    task = {
-        "id": len(ctx.obj["tasks"]) + 1,
-        "title": title,
-        "priority": priority,
-        "due": due.strftime("%Y-%m-%d") if due else None,
-        "done": False
+def db_migrate(ctx, fake):
+    """รัน database migrations"""
+    debug = ctx.obj["debug"]
+    if debug:
+        click.echo("[DEBUG] Running migrations...")
+    
+    if fake:
+        click.echo("Fake migration สำเร็จ")
+    else:
+        click.echo("Migration สำเร็จ")
+
+@db.command("reset")
+@click.confirmation_option(
+    prompt="แน่ใจหรือไม่ที่จะ reset database?"
+)
+def db_reset():
+    """Reset database ทั้งหมด"""
+    click.echo("Database reset สำเร็จ")
+
+@db.command("backup")
+@click.argument("output_path", type=click.Path())
+@click.option("--compress", is_flag=True, help="บีบอัดไฟล์ backup")
+def db_backup(output_path, compress):
+    """สำรองข้อมูล database"""
+    click.echo(f"กำลัง backup ไปยัง {output_path}")
+    if compress:
+        click.echo("กำลังบีบอัด...")
+
+# === User commands group ===
+@cli.group()
+def user():
+    """คำสั่งจัดการ Users"""
+    pass
+
+@user.command("create")
+@click.option("--name", required=True, help="ชื่อผู้ใช้")
+@click.option("--email", required=True, help="Email")
+@click.option("--role",
+    type=click.Choice(["admin", "editor", "viewer"]),
+    default="viewer",
+    help="Role ของผู้ใช้"
+)
+def user_create(name, email, role):
+    """สร้างผู้ใช้ใหม่"""
+    click.echo(f"สร้างผู้ใช้: {name} ({email}) role: {role}")
+
+@user.command("list")
+@click.option("--role", type=click.Choice(["admin", "editor", "viewer", "all"]),
+    default="all")
+@click.option("--format",
+    type=click.Choice(["table", "json", "csv"]),
+    default="table"
+)
+def user_list(role, format):
+    """แสดงรายชื่อผู้ใช้"""
+    click.echo(f"แสดงผู้ใช้ role={role} format={format}")
+
+# รัน:
+# python script.py --debug db migrate
+# python script.py db backup /tmp/backup.sql --compress
+# python script.py user create --name สมชาย --email somchai@example.com --role admin
+```
+
+### 2.4 Click Colors และ Styling
+
+```python
+import click
+import sys
+
+# === Click echo พร้อมสี ===
+def print_status(message, level="info"):
+    """พิมพ์ message พร้อมสีตาม level"""
+    colors = {
+        "info":    ("blue",   "ℹ"),
+        "success": ("green",  "✓"),
+        "warning": ("yellow", "⚠"),
+        "error":   ("red",    "✗"),
     }
-    ctx.obj["tasks"].append(task)
-    click.echo(f"✅ Added task #{task['id']}: {title}")
-
-
-@cli.command()
-@click.option("--status", 
-              type=click.Choice(["all", "pending", "done"]),
-              default="all")
-@click.pass_context
-def ls(ctx, status: str):
-    """List tasks"""
-    tasks = ctx.obj["tasks"]
+    color, icon = colors.get(level, ("white", "·"))
     
-    if status == "pending":
-        tasks = [t for t in tasks if not t["done"]]
-    elif status == "done":
-        tasks = [t for t in tasks if t["done"]]
-    
-    if not tasks:
-        click.echo("No tasks found")
+    click.echo(
+        click.style(f"{icon} ", fg=color, bold=True) +
+        click.style(message, fg=color)
+    )
+
+# === Progress bar ===
+@click.command()
+@click.argument("items", nargs=-1)     # รับหลาย arguments
+def process_items(items):
+    """ประมวลผลหลาย items พร้อม progress bar"""
+    if not items:
+        click.echo("ไม่มี items ให้ประมวลผล")
         return
     
-    for task in tasks:
-        status_icon = "✓" if task["done"] else "○"
-        priority_color = {
-            "high": "red",
-            "medium": "yellow",
-            "low": "green"
-        }.get(task["priority"], "white")
-        
-        click.echo(
-            f"[{status_icon}] #{task['id']} "
-            f"{click.style(task['priority'].upper(), fg=priority_color)}: "
-            f"{task['title']}"
-        )
-
-
-@cli.command()
-@click.argument("task_id", type=int)
-@click.pass_context
-def done(ctx, task_id: int):
-    """Mark task as complete"""
-    tasks = ctx.obj["tasks"]
-    task = next((t for t in tasks if t["id"] == task_id), None)
+    # วิธีที่ 1: click.progressbar
+    with click.progressbar(
+        items,
+        label="กำลังประมวลผล",
+        fill_char=click.style("█", fg="green"),
+        empty_char="░",
+        width=50
+    ) as bar:
+        import time
+        for item in bar:
+            time.sleep(0.1)  # จำลองการทำงาน
     
-    if not task:
-        click.echo(f"Task #{task_id} not found", err=True)
-        sys.exit(1)
-    
-    task["done"] = True
-    click.echo(f"✅ Task #{task_id} marked as done!")
+    print_status("ประมวลผลเสร็จสิ้น", "success")
 
-
-@cli.command()
-@click.argument("task_id", type=int)
-@click.confirmation_option(prompt="Are you sure you want to delete this task?")
-@click.pass_context
-def delete(ctx, task_id: int):
-    """Delete a task"""
-    tasks = ctx.obj["tasks"]
-    original_count = len(tasks)
-    ctx.obj["tasks"] = [t for t in tasks if t["id"] != task_id]
+# === Confirmation และ Prompts ===
+@click.command()
+@click.argument("filename")
+def delete_file(filename):
+    """ลบไฟล์พร้อมขอยืนยัน"""
+    if not click.confirm(
+        click.style(f"แน่ใจหรือไม่ที่จะลบ '{filename}'?", fg="red")
+    ):
+        click.echo("ยกเลิกการลบ")
+        return
     
-    if len(ctx.obj["tasks"]) < original_count:
-        click.echo(f"Deleted task #{task_id}")
-    else:
-        click.echo(f"Task #{task_id} not found", err=True)
+    click.echo(f"ลบ '{filename}' แล้ว")
 
+# === Pager สำหรับ output ยาว ===
+@click.command()
+def show_help():
+    """แสดง help ยาวๆ ด้วย pager"""
+    long_text = "\n".join([f"บรรทัดที่ {i}: ข้อมูลต่างๆ" for i in range(100)])
+    
+    click.echo_via_pager(long_text)  # เปิด less/more โดยอัตโนมัติ
 
-# ทดสอบ Click CLI
-def demo_click():
-    from click.testing import CliRunner
-    
-    runner = CliRunner()
-    
-    # Test add command
-    result = runner.invoke(cli, ["add", "Buy milk", "--priority", "low"])
-    print(f"Add result: {result.output}")
-    
-    # Test list
-    result = runner.invoke(cli, ["ls"])
-    print(f"List result: {result.output}")
-    
-    # Test with context
-    result = runner.invoke(cli, ["--debug", "add", "Do laundry"])
-    print(f"Debug add: {result.output}")
-
-
-demo_click()
+# === Clear screen ===
+@click.command()
+def refresh():
+    """ล้างหน้าจอและแสดงข้อมูลใหม่"""
+    click.clear()
+    click.echo("หน้าจอถูกล้างแล้ว")
 ```
 
 ---
 
-## 3. Typer - Click + Type Hints
+## 3. Typer Library — Modern CLI with Type Hints
+
+Typer สร้าง CLI จาก Python type hints โดยอัตโนมัติ
 
 ```bash
-pip install typer[all]
+# ติดตั้ง typer พร้อม extras
+pip install "typer[all]"
 ```
+
+### 3.1 Typer พื้นฐาน
 
 ```python
 import typer
-from typing import Optional, List
-from enum import Enum
+from typing import Optional, Annotated
 from pathlib import Path
-from datetime import date
+from enum import Enum
 
+# === สร้าง Typer app ===
 app = typer.Typer(
-    name="task-manager",
-    help="Modern task manager CLI",
-    add_completion=True
+    name="myapp",
+    help="My CLI Application — เครื่องมือจัดการระบบ",
+    add_completion=True     # เพิ่ม shell completion
 )
 
-# === Enums สำหรับ choices ===
-class Priority(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+# === Command พื้นฐาน ===
+@app.command()
+def hello(
+    name: str,                              # Positional argument
+    count: int = 1,                         # Option ที่มี default
+    language: str = "th",                   # String option
+    shout: bool = False,                    # Boolean flag
+):
+    """ทักทายผู้ใช้"""
+    greetings = {"th": f"สวัสดี {name}!", "en": f"Hello, {name}!"}
+    message = greetings.get(language, f"Hello, {name}!")
+    
+    if shout:
+        message = message.upper()
+    
+    for _ in range(count):
+        typer.echo(message)
 
+# === Annotated — วิธีใหม่ที่แนะนำ ===
+@app.command()
+def greet(
+    name: Annotated[str, typer.Argument(help="ชื่อที่ต้องการทักทาย")],
+    count: Annotated[int, typer.Option(
+        "--count", "-c",
+        help="จำนวนครั้งที่ทักทาย",
+        min=1,
+        max=100
+    )] = 1,
+    uppercase: Annotated[bool, typer.Option(
+        "--upper/--no-upper",
+        help="แปลงเป็นตัวพิมพ์ใหญ่"
+    )] = False,
+):
+    """ทักทายด้วย Annotated syntax"""
+    message = f"สวัสดี {name}!"
+    if uppercase:
+        message = message.upper()
+    for _ in range(count):
+        typer.echo(message)
+
+if __name__ == "__main__":
+    app()
+```
+
+### 3.2 Typer ขั้นสูงด้วย Enum และ Callbacks
+
+```python
+import typer
+from enum import Enum
+from typing import Optional, Annotated, List
+from pathlib import Path
+
+app = typer.Typer(help="File Manager CLI")
+
+# === Enum สำหรับ choices ===
 class OutputFormat(str, Enum):
-    TABLE = "table"
-    JSON = "json"
-    CSV = "csv"
+    json = "json"
+    csv = "csv"
+    yaml = "yaml"
+    table = "table"
 
+class LogLevel(str, Enum):
+    debug = "debug"
+    info = "info"
+    warning = "warning"
+    error = "error"
 
-# === Typer Commands ===
-@app.command()
-def add(
-    title: str = typer.Argument(..., help="Task title"),
-    priority: Priority = typer.Option(Priority.MEDIUM, "--priority", "-p"),
-    due_date: Optional[date] = typer.Option(None, "--due", "-d", formats=["%Y-%m-%d"]),
-    tags: Optional[List[str]] = typer.Option(None, "--tag", "-t", help="Tags"),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
+# === Callback สำหรับ app options ===
+@app.callback()
+def main_callback(
+    verbose: Annotated[bool, typer.Option(
+        "--verbose", "-v",
+        help="แสดงข้อมูลละเอียด"
+    )] = False,
+    log_level: Annotated[LogLevel, typer.Option(
+        help="ระดับ log"
+    )] = LogLevel.info,
 ):
-    """Add a new task to the task list."""
-    
+    """My File Manager — จัดการไฟล์ด้วย CLI"""
     if verbose:
-        typer.echo(f"Adding task with priority: {priority}")
-    
-    task_info = f"📝 Added: {title}"
-    if priority == Priority.HIGH:
-        # Colorize high priority
-        task_info = typer.style(task_info, fg=typer.colors.RED, bold=True)
-    elif priority == Priority.MEDIUM:
-        task_info = typer.style(task_info, fg=typer.colors.YELLOW)
-    else:
-        task_info = typer.style(task_info, fg=typer.colors.GREEN)
-    
-    typer.echo(task_info)
-    
-    if due_date:
-        typer.echo(f"  Due: {due_date}")
-    if tags:
-        typer.echo(f"  Tags: {', '.join(tags)}")
+        typer.echo(f"[DEBUG] Log level: {log_level.value}")
 
-
+# === Command ที่ใช้ Enum ===
 @app.command()
-def list_tasks(
-    status: str = typer.Option("all", "--status", "-s",
-                               help="Filter by status: all/pending/done"),
-    priority: Optional[Priority] = typer.Option(None, "--priority", "-p"),
-    format: OutputFormat = typer.Option(OutputFormat.TABLE, "--format", "-f"),
-    limit: int = typer.Option(10, "--limit", "-n", min=1, max=1000),
+def list_files(
+    directory: Annotated[Path, typer.Argument(
+        help="Directory ที่ต้องการแสดง",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+    )] = Path("."),
+    format: Annotated[OutputFormat, typer.Option(
+        "--format", "-f",
+        help="รูปแบบ output"
+    )] = OutputFormat.table,
+    pattern: Annotated[str, typer.Option(
+        "--pattern", "-p",
+        help="รูปแบบชื่อไฟล์ (glob pattern)"
+    )] = "*",
 ):
-    """List all tasks."""
-    typer.echo(f"Showing {status} tasks (format: {format})")
+    """แสดงรายการไฟล์"""
+    files = list(directory.glob(pattern))
+    
+    if format == OutputFormat.table:
+        typer.echo(f"{'ชื่อไฟล์':<40} {'ขนาด':>10} {'ประเภท':>10}")
+        typer.echo("-" * 62)
+        for f in files:
+            size = f.stat().st_size if f.is_file() else 0
+            ftype = "ไฟล์" if f.is_file() else "โฟลเดอร์"
+            typer.echo(f"{f.name:<40} {size:>10,} {ftype:>10}")
+    elif format == OutputFormat.json:
+        import json
+        data = [{"name": f.name, "size": f.stat().st_size if f.is_file() else 0} 
+                for f in files]
+        typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
 
-
+# === Command ที่มีหลาย Arguments ===
 @app.command()
-def complete(
-    task_id: int = typer.Argument(..., help="Task ID to mark complete"),
+def copy(
+    sources: Annotated[List[Path], typer.Argument(
+        help="ไฟล์ต้นทาง (หลายไฟล์ได้)"
+    )],
+    destination: Annotated[Path, typer.Option(
+        "--dest", "-d",
+        help="โฟลเดอร์ปลายทาง"
+    )],
+    overwrite: Annotated[bool, typer.Option(
+        "--overwrite/--no-overwrite",
+        help="เขียนทับไฟล์ที่มีอยู่แล้ว"
+    )] = False,
+    dry_run: Annotated[bool, typer.Option(
+        "--dry-run",
+        help="แสดงเฉพาะสิ่งที่จะทำ ไม่ทำจริง"
+    )] = False,
 ):
-    """Mark a task as complete."""
-    typer.echo(f"✅ Task #{task_id} marked as complete!")
+    """คัดลอกไฟล์หลายไฟล์พร้อมกัน"""
+    for source in sources:
+        dest_file = destination / source.name
+        if dry_run:
+            typer.echo(f"[DRY RUN] จะคัดลอก {source} → {dest_file}")
+        else:
+            typer.echo(f"คัดลอก {source} → {dest_file}")
 
+if __name__ == "__main__":
+    app()
+```
 
-@app.command()
-def delete(
-    task_id: int = typer.Argument(..., help="Task ID to delete"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+### 3.3 Typer Sub-Applications
+
+```python
+import typer
+
+# === Main app ===
+app = typer.Typer(help="Project Manager")
+
+# === Sub apps ===
+users_app = typer.Typer(help="จัดการผู้ใช้")
+projects_app = typer.Typer(help="จัดการโปรเจกต์")
+tasks_app = typer.Typer(help="จัดการงาน")
+
+# เพิ่ม sub apps เข้า main app
+app.add_typer(users_app, name="user", help="คำสั่งเกี่ยวกับผู้ใช้")
+app.add_typer(projects_app, name="project", help="คำสั่งเกี่ยวกับโปรเจกต์")
+app.add_typer(tasks_app, name="task", help="คำสั่งเกี่ยวกับงาน")
+
+# === User commands ===
+@users_app.command("create")
+def user_create(
+    name: str,
+    email: str,
+    admin: bool = False
 ):
-    """Delete a task."""
+    """สร้างผู้ใช้ใหม่"""
+    role = "admin" if admin else "user"
+    typer.echo(f"สร้างผู้ใช้: {name} ({email}) [{role}]")
+
+@users_app.command("delete")
+def user_delete(user_id: int, force: bool = False):
+    """ลบผู้ใช้"""
     if not force:
-        confirmed = typer.confirm(f"Delete task #{task_id}?")
-        if not confirmed:
-            typer.echo("Cancelled")
-            raise typer.Abort()
-    
-    typer.echo(f"🗑️  Deleted task #{task_id}")
+        typer.confirm(f"แน่ใจหรือไม่ที่จะลบผู้ใช้ #{user_id}?", abort=True)
+    typer.echo(f"ลบผู้ใช้ #{user_id} แล้ว")
 
+# === Project commands ===
+@projects_app.command("create")
+def project_create(name: str, description: str = ""):
+    """สร้างโปรเจกต์ใหม่"""
+    typer.echo(f"สร้างโปรเจกต์: {name}")
 
-@app.command()
-def export(
-    output: Path = typer.Option(
-        Path("tasks.json"),
-        "--output", "-o",
-        help="Output file path"
-    ),
-    format: OutputFormat = typer.Option(OutputFormat.JSON),
-):
-    """Export tasks to file."""
-    typer.echo(f"Exporting to {output} as {format}")
+@projects_app.command("list")
+def project_list():
+    """แสดงรายการโปรเจกต์"""
+    typer.echo("รายการโปรเจกต์ทั้งหมด")
 
-
-# === Nested App Groups ===
-admin_app = typer.Typer(name="admin", help="Admin commands")
-app.add_typer(admin_app, name="admin")
-
-
-@admin_app.command("stats")
-def admin_stats():
-    """Show admin statistics."""
-    typer.echo("Admin stats...")
-
-
-@admin_app.command("clear")
-def admin_clear(
-    confirm: bool = typer.Option(False, "--confirm", help="Confirm clearing all tasks")
-):
-    """Clear all tasks (admin only)."""
-    if not confirm:
-        typer.echo("Use --confirm to clear all tasks")
-        return
-    typer.echo("Cleared all tasks!")
-
-
-# ทดสอบ
-def demo_typer():
-    from typer.testing import CliRunner
-    
-    runner = CliRunner()
-    
-    result = runner.invoke(app, ["add", "Buy groceries", "--priority", "high"])
-    print(f"Typer add: {result.output}")
-    
-    result = runner.invoke(app, ["list-tasks", "--format", "json"])
-    print(f"Typer list: {result.output}")
-    
-    result = runner.invoke(app, ["--help"])
-    print(f"Help: {result.output[:200]}")
-
-
-demo_typer()
+# รัน:
+# python script.py user create สมชาย somchai@example.com --admin
+# python script.py project create "My Project"
+# python script.py task --help
 ```
 
 ---
 
-## 4. Rich - สวยงามใน Terminal
+## 4. Rich Library — Beautiful Terminal Output
+
+Rich ช่วยสร้าง output ที่สวยงามในเทอร์มินัล
 
 ```bash
+# ติดตั้ง rich
 pip install rich
 ```
+
+### 4.1 Console และ Basic Output
+
+```python
+from rich.console import Console
+from rich.theme import Theme
+from rich.style import Style
+
+# === สร้าง Console ===
+# Console หลักสำหรับ stdout
+console = Console()
+
+# Console สำหรับ stderr (errors)
+error_console = Console(stderr=True, style="bold red")
+
+# Console พร้อม custom theme
+custom_theme = Theme({
+    "info":    "cyan",
+    "success": "bold green",
+    "warning": "bold yellow",
+    "danger":  "bold red",
+    "path":    "underline blue",
+    "code":    "bold magenta on grey23",
+})
+themed_console = Console(theme=custom_theme)
+
+# === การแสดงผลพื้นฐาน ===
+def demo_basic_output():
+    # Markup ด้วย [style]text[/style]
+    console.print("[bold]ข้อความหนา[/bold]")
+    console.print("[italic]ข้อความเอียง[/italic]")
+    console.print("[bold italic red]ข้อความหนา เอียง แดง[/bold italic red]")
+    
+    # Colors
+    console.print("[red]แดง[/red] [green]เขียว[/green] [blue]น้ำเงิน[/blue]")
+    console.print("[#FF6B6B]สีเฉพาะ hex[/#FF6B6B]")
+    
+    # Background colors
+    console.print("[white on blue]ตัวอักษรขาว พื้นหลังน้ำเงิน[/white on blue]")
+    
+    # Style object
+    my_style = Style(color="cyan", bold=True, underline=True)
+    console.print("ข้อความ styled", style=my_style)
+    
+    # Emoji
+    console.print(":rocket: เริ่มต้น :tada:")
+    console.print(":checkmark: สำเร็จ :x: ล้มเหลว")
+
+# === Log methods ===
+def demo_log_methods():
+    console.log("Log message พร้อม timestamp และ location")
+    console.log("[bold green]Success[/bold green]")
+    
+    # Rule (เส้นคั่น)
+    console.rule("[bold red]Section Header[/bold red]")
+    console.rule()  # เส้นว่าง
+    
+    # Print JSON
+    import json
+    data = {"name": "สมชาย", "age": 30, "city": "กรุงเทพ"}
+    console.print_json(json.dumps(data, ensure_ascii=False))
+
+demo_basic_output()
+demo_log_methods()
+```
+
+### 4.2 Tables
 
 ```python
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress, TaskID
-from rich.prompt import Prompt, Confirm, IntPrompt
-from rich.syntax import Syntax
-from rich.tree import Tree
-from rich.columns import Columns
-from rich.text import Text
-from rich import print as rprint
+from rich import box
+
+console = Console()
+
+# === Table พื้นฐาน ===
+def create_user_table(users):
+    """สร้างตารางแสดงข้อมูลผู้ใช้"""
+    table = Table(
+        title="รายชื่อผู้ใช้",
+        title_style="bold magenta",
+        show_header=True,
+        header_style="bold cyan",
+        box=box.ROUNDED,           # รูปแบบ border
+        border_style="blue",
+        row_styles=["", "dim"],    # สลับสีแถว
+        show_lines=True,           # แสดงเส้นแบ่งแถว
+        padding=(0, 1),            # padding ใน cells
+    )
+    
+    # เพิ่ม columns
+    table.add_column("#", style="dim", width=5, justify="right")
+    table.add_column("ชื่อ", style="bold white", min_width=20)
+    table.add_column("Email", style="cyan")
+    table.add_column("Role", justify="center")
+    table.add_column("สถานะ", justify="center")
+    table.add_column("เข้าระบบล่าสุด", justify="right")
+    
+    # เพิ่ม rows
+    for i, user in enumerate(users, 1):
+        # สีตาม role
+        role_style = {
+            "admin": "[bold red]Admin[/bold red]",
+            "editor": "[yellow]Editor[/yellow]",
+            "viewer": "[green]Viewer[/green]",
+        }.get(user["role"], user["role"])
+        
+        # Status icon
+        status = ":green_circle: ออนไลน์" if user["active"] else ":red_circle: ออฟไลน์"
+        
+        table.add_row(
+            str(i),
+            user["name"],
+            user["email"],
+            role_style,
+            status,
+            user.get("last_login", "ไม่เคย")
+        )
+    
+    return table
+
+# ข้อมูลตัวอย่าง
+users = [
+    {"name": "สมชาย ใจดี", "email": "somchai@example.com", "role": "admin", "active": True, "last_login": "2024-01-15"},
+    {"name": "สมหญิง รักเรียน", "email": "somying@example.com", "role": "editor", "active": True, "last_login": "2024-01-14"},
+    {"name": "ประทีป สว่างใจ", "email": "prateep@example.com", "role": "viewer", "active": False, "last_login": "2024-01-10"},
+    {"name": "มาลี ดอกไม้", "email": "malee@example.com", "role": "editor", "active": True, "last_login": "2024-01-15"},
+]
+
+table = create_user_table(users)
+console.print(table)
+
+# === Nested Table ===
+def create_stats_table():
+    outer = Table(show_header=False, box=box.SIMPLE)
+    outer.add_column("Metric")
+    outer.add_column("Value")
+    
+    # Inner table สำหรับ breakdown
+    inner = Table(box=box.MINIMAL)
+    inner.add_column("ประเภท")
+    inner.add_column("จำนวน")
+    inner.add_row("Admin", "5")
+    inner.add_row("Editor", "20")
+    inner.add_row("Viewer", "75")
+    
+    outer.add_row("ผู้ใช้ทั้งหมด", "100")
+    outer.add_row("การแบ่งตาม Role", inner)  # ใส่ตารางใน cell
+    
+    return outer
+```
+
+### 4.3 Progress Bars และ Spinners
+
+```python
+from rich.console import Console
+from rich.progress import (
+    Progress, BarColumn, TimeRemainingColumn,
+    TimeElapsedColumn, SpinnerColumn, TextColumn,
+    DownloadColumn, TransferSpeedColumn, MofNCompleteColumn,
+    track
+)
 import time
 
 console = Console()
 
+# === วิธีที่ 1: ใช้ track() (ง่ายที่สุด) ===
+def simple_progress():
+    """Progress bar แบบง่าย"""
+    items = list(range(100))
+    
+    for item in track(items, description="กำลังประมวลผล..."):
+        time.sleep(0.02)  # จำลองการทำงาน
+    
+    console.print("[green]เสร็จสิ้น![/green]")
 
-# === Rich Print ===
-def demo_rich_print():
-    # Markup
-    console.print("[bold blue]Hello[/bold blue], [italic green]World![/italic green]")
-    console.print("Status: [red]ERROR[/red] | [yellow]WARNING[/yellow] | [green]OK[/green]")
-    
-    # Emoji
-    console.print(":white_check_mark: Task completed!")
-    console.print(":fire: Important message!")
-    
-    # Rule (divider)
-    console.rule("[bold]Section Header[/bold]")
-    
-    # Pretty print objects
-    data = {"name": "Alice", "tasks": [1, 2, 3], "active": True}
-    console.print(data)
-
-
-# === Tables ===
-def demo_table():
-    table = Table(
-        title="Task List",
-        show_header=True,
-        header_style="bold magenta",
-        border_style="blue",
-        expand=True
-    )
-    
-    # Columns
-    table.add_column("ID", style="dim", width=5, justify="right")
-    table.add_column("Title", style="bold", min_width=20)
-    table.add_column("Priority", justify="center", width=10)
-    table.add_column("Status", justify="center", width=10)
-    table.add_column("Due Date", justify="right", width=12)
-    
-    # Rows
-    tasks = [
-        (1, "Buy groceries", "HIGH", "pending", "2024-01-20"),
-        (2, "Do laundry", "MEDIUM", "done", "2024-01-18"),
-        (3, "Read book", "LOW", "pending", "2024-01-25"),
-        (4, "Exercise", "HIGH", "pending", "2024-01-19"),
-    ]
-    
-    for task_id, title, priority, status, due in tasks:
-        # แต่ง style ตาม priority
-        priority_style = {
-            "HIGH": "[bold red]HIGH[/bold red]",
-            "MEDIUM": "[yellow]MEDIUM[/yellow]",
-            "LOW": "[green]LOW[/green]",
-        }.get(priority, priority)
-        
-        status_icon = "✅" if status == "done" else "⏳"
-        
-        table.add_row(
-            str(task_id),
-            title,
-            priority_style,
-            f"{status_icon} {status}",
-            due
-        )
-    
-    console.print(table)
-
-
-# === Panels ===
-def demo_panels():
-    # Simple panel
-    console.print(Panel("Hello, World!", title="Greeting"))
-    
-    # Panel with markup
-    console.print(Panel(
-        "[green]Operation successful![/green]\n"
-        "Files processed: 42\n"
-        "Time elapsed: 3.2s",
-        title="[bold]Result[/bold]",
-        subtitle="Press Enter to continue",
-        border_style="green"
-    ))
-    
-    # Error panel
-    console.print(Panel(
-        "[red]Connection failed![/red]\n"
-        "Host: db.example.com\n"
-        "Error: Connection refused",
-        title="❌ Error",
-        border_style="red"
-    ))
-
-
-# === Progress Bars ===
-def demo_progress():
-    tasks = [
-        ("Download data", 50),
-        ("Process records", 200),
-        ("Generate report", 30),
-    ]
-    
+# === วิธีที่ 2: Progress context manager ===
+def advanced_progress():
+    """Progress bar ที่ปรับแต่งได้"""
     with Progress(
-        "[progress.description]{task.description}",
-        "[progress.percentage]{task.percentage:>3.0f}%",
+        SpinnerColumn(),                          # Spinner ด้านซ้าย
+        TextColumn("[bold blue]{task.description}"),  # คำอธิบาย
+        BarColumn(bar_width=40),                  # Progress bar
+        MofNCompleteColumn(),                     # X/Y
         "•",
-        "[progress.bar]{task.completed}/{task.total}",
-        transient=False  # Keep progress after completion
+        TimeElapsedColumn(),                      # เวลาที่ผ่านไป
+        "•",
+        TimeRemainingColumn(),                    # เวลาที่เหลือ
+        console=console
     ) as progress:
         
-        for task_name, total in tasks:
-            task_id = progress.add_task(f"[cyan]{task_name}[/cyan]", total=total)
+        # Task 1: ดาวน์โหลดข้อมูล
+        task1 = progress.add_task("ดาวน์โหลดข้อมูล...", total=100)
+        # Task 2: ประมวลผล
+        task2 = progress.add_task("ประมวลผล...", total=50)
+        # Task 3: บันทึก
+        task3 = progress.add_task("บันทึกผล...", total=200, visible=False)
+        
+        while not progress.finished:
+            time.sleep(0.05)
+            progress.update(task1, advance=1)
             
-            for i in range(total):
-                progress.advance(task_id)
-                time.sleep(0.01)  # Simulate work
+            if progress.tasks[0].percentage > 50:
+                progress.update(task2, advance=1)
+            
+            if progress.tasks[0].completed:
+                progress.update(task3, visible=True)
+                progress.update(task3, advance=2)
 
+# === Spinner สำหรับงานที่ไม่รู้ความคืบหน้า ===
+def spinner_demo():
+    """แสดง spinner ระหว่างรอ"""
+    with console.status(
+        "[bold green]กำลังเชื่อมต่อ database...",
+        spinner="dots"          # รูปแบบ spinner: dots, line, bouncingBar ฯลฯ
+    ):
+        time.sleep(2)           # จำลองการเชื่อมต่อ
+    
+    console.print("[green]✓[/green] เชื่อมต่อสำเร็จ")
+    
+    # Spinner types: dots, line, bouncingBar, bouncingBall, arc, etc.
+    spinners = ["dots", "line", "arc", "bouncingBar"]
+    for spinner in spinners:
+        with console.status(f"Spinner: {spinner}", spinner=spinner):
+            time.sleep(1)
+```
+
+### 4.4 Syntax Highlighting และ Markdown
+
+```python
+from rich.console import Console
+from rich.syntax import Syntax
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.columns import Columns
+from rich.text import Text
+from rich import inspect
+
+console = Console()
 
 # === Syntax Highlighting ===
 def demo_syntax():
-    code = '''
+    """แสดง code พร้อม syntax highlighting"""
+    python_code = '''
 def fibonacci(n: int) -> list[int]:
-    """Generate Fibonacci sequence up to n."""
+    """สร้าง Fibonacci sequence"""
     if n <= 0:
         return []
     elif n == 1:
         return [0]
     
-    seq = [0, 1]
-    while len(seq) < n:
-        seq.append(seq[-1] + seq[-2])
-    return seq
+    fib = [0, 1]
+    while len(fib) < n:
+        fib.append(fib[-1] + fib[-2])
+    return fib
 
+# ทดสอบ
 result = fibonacci(10)
-print(f"Fibonacci: {result}")
+print(result)  # [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
 '''
     
-    syntax = Syntax(code, "python", theme="monokai", line_numbers=True)
-    console.print(syntax)
-
-
-# === Tree Structure ===
-def demo_tree():
-    tree = Tree("🗂️  [bold]Project Structure[/bold]")
-    
-    src = tree.add("📁 [blue]src[/blue]")
-    src.add("📄 main.py")
-    src.add("📄 models.py")
-    api = src.add("📁 [blue]api[/blue]")
-    api.add("📄 routes.py")
-    api.add("📄 schemas.py")
-    
-    tests = tree.add("📁 [blue]tests[/blue]")
-    tests.add("📄 test_main.py")
-    tests.add("📄 conftest.py")
-    
-    tree.add("📄 requirements.txt")
-    tree.add("📄 Dockerfile")
-    tree.add("📄 .env.example")
-    
-    console.print(tree)
-
-
-# === Prompt ===
-def demo_prompts():
-    # Text prompt
-    name = Prompt.ask("[green]What's your name?[/green]", default="World")
-    console.print(f"Hello, [bold]{name}[/bold]!")
-    
-    # Integer prompt
-    age = IntPrompt.ask("How old are you?", default=25)
-    console.print(f"You are {age} years old")
-    
-    # Confirmation
-    proceed = Confirm.ask("Do you want to continue?", default=True)
-    if proceed:
-        console.print("[green]Continuing...[/green]")
-    else:
-        console.print("[yellow]Aborted[/yellow]")
-    
-    # Choice prompt
-    priority = Prompt.ask(
-        "Select priority",
-        choices=["low", "medium", "high"],
-        default="medium"
+    # สร้าง Syntax object
+    syntax = Syntax(
+        python_code,
+        "python",                   # language
+        theme="monokai",            # theme: monokai, github-dark, one-dark, etc.
+        line_numbers=True,          # แสดงเลขบรรทัด
+        start_line=1,               # เริ่มต้นจากบรรทัดไหน
+        highlight_lines={4, 5, 6},  # ไฮไลต์บรรทัดที่ระบุ
+        word_wrap=True,             # ตัดบรรทัดอัตโนมัติ
     )
-    console.print(f"Priority: {priority}")
-
-
-# === Spinner (Loading Indicator) ===
-def demo_spinner():
-    from rich.spinner import Spinner
-    from rich.live import Live
     
-    steps = [
-        ("Connecting to database", 1),
-        ("Running migrations", 2),
-        ("Seeding data", 1.5),
-        ("Starting server", 0.5),
+    # แสดงใน Panel
+    console.print(Panel(syntax, title="Python Code", border_style="green"))
+    
+    # อ่านจากไฟล์
+    # syntax_from_file = Syntax.from_path("script.py", line_numbers=True)
+
+# === Markdown ===
+def demo_markdown():
+    """แสดง Markdown"""
+    md_text = """
+# หัวข้อหลัก
+
+## หัวข้อรอง
+
+ข้อความปกติ **ตัวหนา** และ *ตัวเอียง* และ `code inline`
+
+### รายการ
+- รายการที่ 1
+- รายการที่ 2
+  - รายการย่อย
+  - รายการย่อยอีกรายการ
+- รายการที่ 3
+
+### Code Block
+```python
+print("สวัสดีโลก!")
+```
+
+### ตาราง
+| ชื่อ | อายุ | เมือง |
+|------|------|-------|
+| สมชาย | 30 | กรุงเทพ |
+| สมหญิง | 25 | เชียงใหม่ |
+
+> blockquote: นี่คือข้อความอ้างอิง
+"""
+    
+    markdown = Markdown(md_text)
+    console.print(markdown)
+
+# === Panel ===
+def demo_panels():
+    """แสดง Panels"""
+    # Panel พื้นฐาน
+    console.print(Panel("เนื้อหาใน panel", title="หัวข้อ", border_style="blue"))
+    
+    # Panel พร้อม subtitle
+    console.print(Panel(
+        "ข้อมูลสำคัญที่ต้องการเน้น",
+        title="[bold red]Warning[/bold red]",
+        subtitle="[dim]คลิกเพื่อปิด[/dim]",
+        border_style="red",
+        padding=(1, 2)   # padding (vertical, horizontal)
+    ))
+    
+    # Panel แสดง nested
+    inner = Panel("ข้อมูลภายใน", border_style="green")
+    outer = Panel(inner, title="กล่องนอก", border_style="blue")
+    console.print(outer)
+
+# === Columns Layout ===
+def demo_columns():
+    """แสดงหลาย items แบบหลายคอลัมน์"""
+    items = [
+        Panel(f"Item {i}\nข้อมูล {i}", border_style="cyan")
+        for i in range(6)
     ]
     
-    for step_name, duration in steps:
-        with console.status(f"[bold green]{step_name}..."):
-            time.sleep(duration)
-        console.print(f"  ✅ {step_name}")
+    console.print(Columns(items, equal=True, expand=True))
+
+# === inspect() สำหรับ debugging ===
+class MyClass:
+    """คลาสตัวอย่าง"""
+    name = "ทดสอบ"
+    value = 42
     
-    console.print("\n[bold green]Application started successfully![/bold green]")
+    def my_method(self):
+        """เมธอดตัวอย่าง"""
+        return self.value
 
-
-# Run demos
-print("=== Rich Demo ===")
-demo_rich_print()
-demo_table()
-demo_panels()
-demo_tree()
-# demo_progress()  # Uncomment เพื่อดู progress bars
-# demo_syntax()    # Uncomment เพื่อดู syntax highlighting
+# inspect(MyClass(), methods=True)  # แสดง attributes และ methods ทั้งหมด
 ```
 
 ---
 
-## 5. Complete CLI Application
+## 5. สร้าง CLI Tool ครบวงจร: Task Manager
+
+ตัวอย่างการสร้าง Task Manager แบบ CLI ที่ใช้ทุกอย่างที่เรียนมา
 
 ```python
+# task_manager.py — CLI Task Manager
+
 import typer
+import json
+from pathlib import Path
+from datetime import datetime, date
+from enum import Enum
+from typing import Optional, Annotated, List
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.progress import Progress
-from pathlib import Path
-from typing import Optional, List
-from enum import Enum
-import json
-import datetime
+from rich import box
+from rich.prompt import Prompt, Confirm
+from rich.progress import track
 
-# App setup
+# === App Setup ===
 app = typer.Typer(
     name="tasks",
-    help="Modern task manager with rich UI",
-    rich_markup_mode="rich",
-    add_completion=True
+    help="Task Manager — จัดการงานด้วย CLI",
+    add_completion=True,
+    rich_markup_mode="rich"
 )
 console = Console()
 
-# Storage
-TASKS_FILE = Path.home() / ".tasks.json"
-
-
+# === Data Models ===
 class Priority(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+    low = "low"
+    medium = "medium"
+    high = "high"
+    urgent = "urgent"
 
+class Status(str, Enum):
+    todo = "todo"
+    in_progress = "in_progress"
+    done = "done"
+    cancelled = "cancelled"
 
-def load_tasks() -> list:
-    if TASKS_FILE.exists():
-        return json.loads(TASKS_FILE.read_text())
-    return []
+# === Data Storage ===
+DATA_FILE = Path.home() / ".tasks" / "tasks.json"
 
+def load_tasks() -> list[dict]:
+    """โหลด tasks จากไฟล์"""
+    if not DATA_FILE.exists():
+        return []
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return []
 
-def save_tasks(tasks: list):
-    TASKS_FILE.write_text(json.dumps(tasks, indent=2, default=str))
+def save_tasks(tasks: list[dict]) -> None:
+    """บันทึก tasks ลงไฟล์"""
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(tasks, f, ensure_ascii=False, indent=2, default=str)
 
-
-def get_next_id(tasks: list) -> int:
+def get_next_id(tasks: list[dict]) -> int:
+    """หา ID ถัดไป"""
     if not tasks:
         return 1
     return max(t["id"] for t in tasks) + 1
 
+# === Helper Functions ===
+def priority_color(priority: str) -> str:
+    colors = {
+        "low":    "dim",
+        "medium": "yellow",
+        "high":   "red",
+        "urgent": "bold red on dark_red"
+    }
+    return colors.get(priority, "white")
+
+def status_color(status: str) -> str:
+    colors = {
+        "todo":        "white",
+        "in_progress": "bold blue",
+        "done":        "bold green",
+        "cancelled":   "strikethrough dim"
+    }
+    return colors.get(status, "white")
+
+def status_icon(status: str) -> str:
+    icons = {
+        "todo":        "⬜",
+        "in_progress": "🔄",
+        "done":        "✅",
+        "cancelled":   "❌"
+    }
+    return icons.get(status, "❓")
 
 # === Commands ===
-@app.command()
-def add(
-    title: str = typer.Argument(..., help="Task title"),
-    priority: Priority = typer.Option(Priority.MEDIUM, "--priority", "-p"),
-    tags: Optional[List[str]] = typer.Option(None, "--tag", "-t"),
+
+@app.command("add")
+def add_task(
+    title: Annotated[str, typer.Argument(help="ชื่องาน")],
+    description: Annotated[Optional[str], typer.Option(
+        "--desc", "-d", help="คำอธิบายงาน"
+    )] = None,
+    priority: Annotated[Priority, typer.Option(
+        "--priority", "-p", help="ความสำคัญ"
+    )] = Priority.medium,
+    due_date: Annotated[Optional[str], typer.Option(
+        "--due", help="วันครบกำหนด (YYYY-MM-DD)"
+    )] = None,
+    tags: Annotated[Optional[List[str]], typer.Option(
+        "--tag", "-t", help="Tags (ใส่ได้หลายอัน)"
+    )] = None,
 ):
-    """[green]Add[/green] a new task."""
+    """➕ เพิ่มงานใหม่"""
     tasks = load_tasks()
     
     task = {
         "id": get_next_id(tasks),
         "title": title,
+        "description": description or "",
         "priority": priority.value,
+        "status": Status.todo.value,
+        "due_date": due_date,
         "tags": tags or [],
-        "done": False,
-        "created_at": datetime.datetime.now().isoformat(),
+        "created_at": datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
     }
     
     tasks.append(task)
     save_tasks(tasks)
     
-    priority_style = {
-        "high": "[red]HIGH[/red]",
-        "medium": "[yellow]MEDIUM[/yellow]",
-        "low": "[green]LOW[/green]",
-    }[priority]
-    
-    console.print(
-        Panel(
-            f"[bold]#{task['id']}[/bold] {title}\n"
-            f"Priority: {priority_style}"
-            + (f"\nTags: {', '.join(tags)}" if tags else ""),
-            title="[green]✅ Task Added[/green]",
-            border_style="green"
-        )
-    )
-
+    console.print(Panel(
+        f"[bold]#{task['id']}[/bold] {task['title']}\n"
+        f"Priority: [{priority_color(priority.value)}]{priority.value}[/{priority_color(priority.value)}]\n"
+        f"Due: {due_date or 'ไม่กำหนด'}\n"
+        f"Tags: {', '.join(tags) if tags else 'ไม่มี'}",
+        title="[green]✅ เพิ่มงานสำเร็จ[/green]",
+        border_style="green"
+    ))
 
 @app.command("list")
 def list_tasks(
-    status: str = typer.Option("pending", "--status", "-s",
-                               help="all/pending/done"),
-    priority: Optional[Priority] = typer.Option(None, "--priority", "-p"),
+    status: Annotated[Optional[Status], typer.Option(
+        "--status", "-s", help="กรองตาม status"
+    )] = None,
+    priority: Annotated[Optional[Priority], typer.Option(
+        "--priority", "-p", help="กรองตาม priority"
+    )] = None,
+    tag: Annotated[Optional[str], typer.Option(
+        "--tag", "-t", help="กรองตาม tag"
+    )] = None,
+    show_all: Annotated[bool, typer.Option(
+        "--all", "-a", help="แสดงทั้งหมดรวม cancelled"
+    )] = False,
 ):
-    """[blue]List[/blue] tasks."""
+    """📋 แสดงรายการงานทั้งหมด"""
     tasks = load_tasks()
     
     # Filter
-    if status == "pending":
-        tasks = [t for t in tasks if not t["done"]]
-    elif status == "done":
-        tasks = [t for t in tasks if t["done"]]
-    
+    filtered = tasks
+    if not show_all:
+        filtered = [t for t in filtered if t["status"] != "cancelled"]
+    if status:
+        filtered = [t for t in filtered if t["status"] == status.value]
     if priority:
-        tasks = [t for t in tasks if t["priority"] == priority.value]
+        filtered = [t for t in filtered if t["priority"] == priority.value]
+    if tag:
+        filtered = [t for t in filtered if tag in t.get("tags", [])]
     
-    if not tasks:
-        console.print("[yellow]No tasks found.[/yellow]")
+    if not filtered:
+        console.print("[yellow]ไม่พบงานที่ตรงกับเงื่อนไข[/yellow]")
         return
     
+    # Sort by priority then id
+    priority_order = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
+    filtered.sort(key=lambda t: (t["status"] == "done", priority_order.get(t["priority"], 4), t["id"]))
+    
+    # สร้างตาราง
     table = Table(
-        title=f"Tasks ({status})",
+        title=f"📋 Tasks ({len(filtered)} รายการ)",
+        box=box.ROUNDED,
         border_style="blue",
-        header_style="bold blue"
+        show_header=True,
+        header_style="bold cyan",
     )
     
-    table.add_column("ID", width=5, justify="right")
-    table.add_column("Title", min_width=20)
+    table.add_column("ID", width=5, justify="right", style="dim")
+    table.add_column("สถานะ", width=4, justify="center")
+    table.add_column("งาน", min_width=30)
     table.add_column("Priority", width=10, justify="center")
+    table.add_column("Due Date", width=12, justify="right")
     table.add_column("Tags", width=20)
-    table.add_column("Status", width=10, justify="center")
     
-    for task in tasks:
-        priority_text = {
-            "high": "[bold red]🔴 HIGH[/bold red]",
-            "medium": "[yellow]🟡 MED[/yellow]",
-            "low": "[green]🟢 LOW[/green]",
-        }.get(task["priority"], task["priority"])
+    for task in filtered:
+        p = task["priority"]
+        s = task["status"]
         
-        status_text = "✅ Done" if task["done"] else "⏳ Pending"
-        tags_text = ", ".join(task.get("tags", [])) or "-"
+        # ตรวจสอบ overdue
+        due_str = task.get("due_date", "") or ""
+        due_display = due_str
+        if due_str:
+            try:
+                due_dt = date.fromisoformat(due_str)
+                if due_dt < date.today() and s not in ("done", "cancelled"):
+                    due_display = f"[bold red]{due_str} ⚠[/bold red]"
+            except ValueError:
+                pass
+        
+        title_style = status_color(s)
         
         table.add_row(
             str(task["id"]),
-            task["title"],
-            priority_text,
-            tags_text,
-            status_text
+            status_icon(s),
+            f"[{title_style}]{task['title']}[/{title_style}]",
+            f"[{priority_color(p)}]{p}[/{priority_color(p)}]",
+            due_display or "[dim]-[/dim]",
+            ", ".join(task.get("tags", [])) or "[dim]-[/dim]"
         )
     
     console.print(table)
-    console.print(f"Total: [bold]{len(tasks)}[/bold] tasks")
+    
+    # Summary
+    done = sum(1 for t in filtered if t["status"] == "done")
+    total = len(filtered)
+    pct = (done / total * 100) if total > 0 else 0
+    console.print(f"\n[dim]เสร็จแล้ว: {done}/{total} ({pct:.0f}%)[/dim]")
 
-
-@app.command()
-def done(
-    task_id: int = typer.Argument(..., help="Task ID"),
+@app.command("done")
+def complete_task(
+    task_id: Annotated[int, typer.Argument(help="ID ของงาน")],
 ):
-    """Mark task as [green]done[/green]."""
+    """✅ ทำเครื่องหมายงานว่าเสร็จแล้ว"""
     tasks = load_tasks()
     
     task = next((t for t in tasks if t["id"] == task_id), None)
     if not task:
-        console.print(f"[red]Task #{task_id} not found[/red]")
+        console.print(f"[red]ไม่พบงาน #{task_id}[/red]")
         raise typer.Exit(1)
     
-    if task["done"]:
-        console.print(f"[yellow]Task #{task_id} is already done[/yellow]")
-        return
-    
-    task["done"] = True
-    task["completed_at"] = datetime.datetime.now().isoformat()
+    task["status"] = Status.done.value
+    task["updated_at"] = datetime.now().isoformat()
+    task["completed_at"] = datetime.now().isoformat()
     save_tasks(tasks)
     
-    console.print(f"[green]✅ Task #{task_id} '{task['title']}' marked as done![/green]")
+    console.print(f"[green]✅ งาน #{task_id} '{task['title']}' เสร็จสิ้นแล้ว![/green]")
 
-
-@app.command()
-def delete(
-    task_id: int = typer.Argument(..., help="Task ID"),
-    force: bool = typer.Option(False, "--force", "-f"),
+@app.command("update")
+def update_task(
+    task_id: Annotated[int, typer.Argument(help="ID ของงาน")],
+    title: Annotated[Optional[str], typer.Option("--title", help="ชื่องานใหม่")] = None,
+    status: Annotated[Optional[Status], typer.Option("--status", "-s", help="Status ใหม่")] = None,
+    priority: Annotated[Optional[Priority], typer.Option("--priority", "-p", help="Priority ใหม่")] = None,
+    due_date: Annotated[Optional[str], typer.Option("--due", help="วันครบกำหนดใหม่")] = None,
 ):
-    """[red]Delete[/red] a task."""
+    """✏️ แก้ไขงาน"""
     tasks = load_tasks()
     
     task = next((t for t in tasks if t["id"] == task_id), None)
     if not task:
-        console.print(f"[red]Task #{task_id} not found[/red]")
+        console.print(f"[red]ไม่พบงาน #{task_id}[/red]")
+        raise typer.Exit(1)
+    
+    # อัพเดตเฉพาะที่ระบุ
+    if title: task["title"] = title
+    if status: task["status"] = status.value
+    if priority: task["priority"] = priority.value
+    if due_date: task["due_date"] = due_date
+    task["updated_at"] = datetime.now().isoformat()
+    
+    save_tasks(tasks)
+    console.print(f"[green]✅ อัพเดตงาน #{task_id} สำเร็จ[/green]")
+
+@app.command("delete")
+def delete_task(
+    task_id: Annotated[int, typer.Argument(help="ID ของงาน")],
+    force: Annotated[bool, typer.Option("--force", "-f", help="ลบโดยไม่ถามยืนยัน")] = False,
+):
+    """🗑️ ลบงาน"""
+    tasks = load_tasks()
+    
+    task = next((t for t in tasks if t["id"] == task_id), None)
+    if not task:
+        console.print(f"[red]ไม่พบงาน #{task_id}[/red]")
         raise typer.Exit(1)
     
     if not force:
-        confirmed = typer.confirm(
-            f"Delete task #{task_id} '{task['title']}'?"
-        )
-        if not confirmed:
-            console.print("[yellow]Cancelled[/yellow]")
+        if not Confirm.ask(f"แน่ใจหรือไม่ที่จะลบงาน #{task_id} '{task['title']}'?"):
+            console.print("[yellow]ยกเลิกการลบ[/yellow]")
             return
     
     tasks = [t for t in tasks if t["id"] != task_id]
     save_tasks(tasks)
-    console.print(f"[red]🗑️  Task #{task_id} deleted[/red]")
+    console.print(f"[green]🗑️ ลบงาน #{task_id} '{task['title']}' แล้ว[/green]")
 
+@app.command("show")
+def show_task(
+    task_id: Annotated[int, typer.Argument(help="ID ของงาน")],
+):
+    """🔍 แสดงรายละเอียดงาน"""
+    tasks = load_tasks()
+    
+    task = next((t for t in tasks if t["id"] == task_id), None)
+    if not task:
+        console.print(f"[red]ไม่พบงาน #{task_id}[/red]")
+        raise typer.Exit(1)
+    
+    s = task["status"]
+    p = task["priority"]
+    
+    details = (
+        f"{status_icon(s)} [bold]#{task['id']}[/bold] {task['title']}\n\n"
+        f"[bold]คำอธิบาย:[/bold] {task['description'] or '[dim]ไม่มี[/dim]'}\n"
+        f"[bold]Status:[/bold] [{status_color(s)}]{s}[/{status_color(s)}]\n"
+        f"[bold]Priority:[/bold] [{priority_color(p)}]{p}[/{priority_color(p)}]\n"
+        f"[bold]Due Date:[/bold] {task.get('due_date') or '[dim]ไม่กำหนด[/dim]'}\n"
+        f"[bold]Tags:[/bold] {', '.join(task.get('tags', [])) or '[dim]ไม่มี[/dim]'}\n"
+        f"[bold]สร้างเมื่อ:[/bold] {task['created_at']}\n"
+        f"[bold]อัพเดตเมื่อ:[/bold] {task['updated_at']}\n"
+    )
+    
+    if "completed_at" in task:
+        details += f"[bold]เสร็จเมื่อ:[/bold] {task['completed_at']}\n"
+    
+    console.print(Panel(details, title=f"Task #{task_id}", border_style="blue"))
 
-@app.command()
-def stats():
-    """Show [cyan]statistics[/cyan]."""
+@app.command("stats")
+def show_stats():
+    """📊 แสดงสถิติงาน"""
     tasks = load_tasks()
     
     if not tasks:
-        console.print("[yellow]No tasks yet[/yellow]")
+        console.print("[yellow]ยังไม่มีงาน[/yellow]")
         return
     
+    # คำนวณสถิติ
     total = len(tasks)
-    done = sum(1 for t in tasks if t["done"])
-    pending = total - done
-    
+    by_status = {}
     by_priority = {}
-    for t in tasks:
-        p = t["priority"]
+    
+    for task in tasks:
+        s = task["status"]
+        p = task["priority"]
+        by_status[s] = by_status.get(s, 0) + 1
         by_priority[p] = by_priority.get(p, 0) + 1
     
-    console.print(Panel(
-        f"[bold]Total:[/bold] {total}\n"
-        f"[green]Done:[/green] {done} ({done/total*100:.0f}%)\n"
-        f"[yellow]Pending:[/yellow] {pending}\n\n"
-        f"By Priority:\n"
-        f"  [red]High:[/red] {by_priority.get('high', 0)}\n"
-        f"  [yellow]Medium:[/yellow] {by_priority.get('medium', 0)}\n"
-        f"  [green]Low:[/green] {by_priority.get('low', 0)}",
-        title="[cyan]📊 Statistics[/cyan]",
-        border_style="cyan"
-    ))
+    # สร้างตาราง
+    status_table = Table(title="ตาม Status", box=box.SIMPLE)
+    status_table.add_column("Status", style="bold")
+    status_table.add_column("จำนวน", justify="right")
+    status_table.add_column("เปอร์เซ็นต์", justify="right")
+    
+    for s, count in sorted(by_status.items()):
+        pct = count / total * 100
+        status_table.add_row(
+            f"[{status_color(s)}]{status_icon(s)} {s}[/{status_color(s)}]",
+            str(count),
+            f"{pct:.1f}%"
+        )
+    
+    priority_table = Table(title="ตาม Priority", box=box.SIMPLE)
+    priority_table.add_column("Priority", style="bold")
+    priority_table.add_column("จำนวน", justify="right")
+    
+    for p, count in sorted(by_priority.items(), key=lambda x: {"urgent":0,"high":1,"medium":2,"low":3}.get(x[0], 4)):
+        priority_table.add_row(
+            f"[{priority_color(p)}]{p}[/{priority_color(p)}]",
+            str(count)
+        )
+    
+    from rich.columns import Columns
+    console.print(f"\n[bold]📊 สถิติงานทั้งหมด ({total} งาน)[/bold]\n")
+    console.print(Columns([status_table, priority_table], expand=True))
 
+@app.command("clear")
+def clear_done(
+    force: Annotated[bool, typer.Option("--force", "-f")] = False,
+):
+    """🧹 ลบงานที่เสร็จแล้วทั้งหมด"""
+    tasks = load_tasks()
+    done_tasks = [t for t in tasks if t["status"] == "done"]
+    
+    if not done_tasks:
+        console.print("[yellow]ไม่มีงานที่เสร็จแล้ว[/yellow]")
+        return
+    
+    if not force:
+        console.print(f"พบงานที่เสร็จแล้ว {len(done_tasks)} งาน:")
+        for t in done_tasks:
+            console.print(f"  • #{t['id']} {t['title']}")
+        
+        if not Confirm.ask("ยืนยันการลบ?"):
+            console.print("[yellow]ยกเลิก[/yellow]")
+            return
+    
+    remaining = [t for t in tasks if t["status"] != "done"]
+    save_tasks(remaining)
+    console.print(f"[green]🧹 ลบงานที่เสร็จแล้ว {len(done_tasks)} งาน[/green]")
 
-# Entry point
 if __name__ == "__main__":
     app()
 ```
 
+### 5.1 วิธีใช้งาน Task Manager
+
+```bash
+# เพิ่มงาน
+python task_manager.py add "เขียน unit tests" --priority high --due 2024-02-01 --tag python --tag testing
+
+# แสดงรายการ
+python task_manager.py list
+python task_manager.py list --priority high
+python task_manager.py list --status todo
+python task_manager.py list --tag python
+
+# ดูรายละเอียด
+python task_manager.py show 1
+
+# อัพเดตงาน
+python task_manager.py update 1 --status in_progress
+python task_manager.py update 1 --priority urgent
+
+# ทำเครื่องหมายเสร็จ
+python task_manager.py done 1
+
+# ลบงาน
+python task_manager.py delete 2
+python task_manager.py delete 3 --force
+
+# สถิติ
+python task_manager.py stats
+
+# ลบงานที่เสร็จทั้งหมด
+python task_manager.py clear
+```
+
 ---
 
-## 6. สรุป Part 047
+## 6. เทคนิคเพิ่มเติมสำหรับ CLI Tools
 
-✅ **argparse** - Built-in, subcommands, ทุก argument types  
-✅ **click** - Groups, callbacks, context passing  
-✅ **typer** - Type hints + Click, modern Python CLI  
-✅ **rich** - Colors, tables, panels, progress bars  
-✅ **Complete App** - Task manager ใช้งานได้จริง  
+### 6.1 Configuration Management
 
-**เปรียบเทียบ Libraries:**
-- `argparse`: ไม่ต้อง install, พื้นฐาน, verbose
-- `click`: Popular, decorators, groups
-- `typer`: Type hints, auto-complete, รองรับ rich
+```python
+import typer
+import json
+from pathlib import Path
+from rich.console import Console
 
-**Best Practices:**
-- ใส่ `--help` ที่ดีใน commands ทั้งหมด
-- ใช้ error codes (0=success, 1+=error)
-- Confirm destructive operations
-- แสดง progress สำหรับ long operations
+console = Console()
+app = typer.Typer()
+
+# === Config file management ===
+CONFIG_DIR = Path.home() / ".config" / "myapp"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+def get_config() -> dict:
+    """โหลด config"""
+    if not CONFIG_FILE.exists():
+        return {}
+    with open(CONFIG_FILE) as f:
+        return json.load(f)
+
+def save_config(config: dict):
+    """บันทึก config"""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
+@app.command("config")
+def manage_config(
+    key: str = typer.Argument(None),
+    value: str = typer.Argument(None),
+    unset: bool = typer.Option(False, "--unset", help="ลบ config")
+):
+    """จัดการ configuration"""
+    config = get_config()
+    
+    if key is None:
+        # แสดง config ทั้งหมด
+        if not config:
+            console.print("[dim]ไม่มี config[/dim]")
+        for k, v in config.items():
+            console.print(f"{k} = {v}")
+        return
+    
+    if unset:
+        config.pop(key, None)
+        save_config(config)
+        console.print(f"[green]ลบ config '{key}' แล้ว[/green]")
+        return
+    
+    if value is None:
+        # แสดงค่าเดียว
+        if key in config:
+            console.print(f"{key} = {config[key]}")
+        else:
+            console.print(f"[yellow]ไม่พบ config '{key}'[/yellow]")
+        return
+    
+    # ตั้งค่า
+    config[key] = value
+    save_config(config)
+    console.print(f"[green]ตั้งค่า {key} = {value}[/green]")
+```
+
+### 6.2 Shell Completion
+
+```python
+# click completion
+import click
+
+@click.group()
+def cli():
+    pass
+
+@cli.command()
+@click.argument("environment",
+    shell_complete=lambda ctx, param, incomplete: [
+        click.shell_completion.CompletionItem(e)
+        for e in ["development", "staging", "production"]
+        if e.startswith(incomplete)
+    ]
+)
+def deploy(environment):
+    """Deploy to environment"""
+    click.echo(f"Deploying to {environment}")
+
+# typer completion (อัตโนมัติจาก type hints)
+# python script.py --install-completion bash
+# python script.py --install-completion zsh
+# python script.py --show-completion bash
+```
+
+### 6.3 Testing CLI Tools
+
+```python
+# test_cli.py — ทดสอบ CLI tools
+
+from click.testing import CliRunner
+from typer.testing import CliRunner as TyperRunner
+import pytest
+
+# === ทดสอบ Click CLI ===
+from my_click_app import cli
+
+def test_click_hello():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["hello", "สมชาย"])
+    assert result.exit_code == 0
+    assert "สมชาย" in result.output
+
+def test_click_help():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    assert "help" in result.output.lower()
+
+# === ทดสอบ Typer CLI ===
+from task_manager import app
+
+runner = TyperRunner()
+
+def test_add_task():
+    """ทดสอบการเพิ่มงาน"""
+    result = runner.invoke(app, ["add", "ทดสอบงาน"])
+    assert result.exit_code == 0
+    assert "สำเร็จ" in result.stdout
+
+def test_list_empty():
+    """ทดสอบการแสดงรายการงานเมื่อไม่มีงาน"""
+    # ใช้ temp directory สำหรับ test
+    import tempfile
+    import os
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Override data file path
+        result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+
+def test_invalid_priority():
+    """ทดสอบ priority ที่ไม่ถูกต้อง"""
+    result = runner.invoke(app, ["add", "งาน", "--priority", "invalid"])
+    assert result.exit_code != 0
+```
+
+---
+
+## 7. สรุป Part 047
+
+✅ **argparse** — Built-in Python CLI parser พร้อม ArgumentParser, add_argument, subparsers, types, choices
+
+✅ **click** — Decorator-based CLI framework พร้อม @click.command, @click.option, groups, context, colors
+
+✅ **typer** — Modern CLI ด้วย type hints พร้อม Annotated, sub-apps, Enum choices
+
+✅ **rich** — Beautiful terminal output พร้อม Console, Table, Progress, Panel, Syntax highlighting
+
+✅ **Complete CLI Tool** — Task Manager ที่ใช้ทุกอย่างร่วมกัน พร้อม CRUD operations และ data persistence
 
 ## ➡️ ถัดไป: Part 048 - Performance Optimization
+
 *Part 047/100+ | Python Course - Beginner to World-Class*
